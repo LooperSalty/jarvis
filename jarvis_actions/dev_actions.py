@@ -96,9 +96,13 @@ def _ouvrir_terminal(dossier: str | None) -> tuple[str, bool]:
         if wt:
             subprocess.Popen([wt, "-d", str(chemin)], shell=False)
         else:
+            # Le dossier est passe via cwd (jamais concatene dans la commande)
+            # pour eviter toute injection cmd.exe via un chemin piege.
             subprocess.Popen(
-                ["cmd.exe", "/c", "start", "cmd.exe", "/K", f"cd /D \"{chemin}\""],
+                ["cmd.exe", "/K"],
+                cwd=str(chemin),
                 shell=False,
+                creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
             )
         return f"Terminal ouvert dans {chemin.name}.", True
     except Exception as e:

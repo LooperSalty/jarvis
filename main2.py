@@ -41,6 +41,46 @@ from jarvis_config import USER_NAME
 load_dotenv()
 
 
+import ast as _ast
+import operator as _operator
+
+_MATH_OPS = {
+    _ast.Add: _operator.add, _ast.Sub: _operator.sub, _ast.Mult: _operator.mul,
+    _ast.Div: _operator.truediv, _ast.FloorDiv: _operator.floordiv,
+    _ast.Mod: _operator.mod, _ast.Pow: _operator.pow,
+    _ast.USub: _operator.neg, _ast.UAdd: _operator.pos,
+}
+_MATH_NAMES = {"pi": math.pi, "e": math.e}
+_MATH_FUNCS = {"sqrt": math.sqrt, "pow": pow}
+
+
+def _eval_math_node(node):
+    """Evalue un noeud AST mathematique (whitelist stricte, pas d'eval)."""
+    if isinstance(node, _ast.Expression):
+        return _eval_math_node(node.body)
+    if isinstance(node, _ast.Constant) and isinstance(node.value, (int, float)):
+        return node.value
+    if isinstance(node, _ast.UnaryOp) and type(node.op) in _MATH_OPS:
+        return _MATH_OPS[type(node.op)](_eval_math_node(node.operand))
+    if isinstance(node, _ast.BinOp) and type(node.op) in _MATH_OPS:
+        left = _eval_math_node(node.left)
+        right = _eval_math_node(node.right)
+        if isinstance(node.op, _ast.Pow) and (abs(right) > 100 or abs(left) > 1e6):
+            raise ValueError("exposant trop grand")
+        return _MATH_OPS[type(node.op)](left, right)
+    if isinstance(node, _ast.Name) and node.id in _MATH_NAMES:
+        return _MATH_NAMES[node.id]
+    if (isinstance(node, _ast.Call) and isinstance(node.func, _ast.Name)
+            and node.func.id in _MATH_FUNCS and not node.keywords):
+        return _MATH_FUNCS[node.func.id](*[_eval_math_node(a) for a in node.args])
+    raise ValueError("expression non autorisee")
+
+
+def _safe_eval_math(expr):
+    """Parse et evalue une expression arithmetique sans eval()."""
+    return _eval_math_node(_ast.parse(expr, mode="eval"))
+
+
 def _local_ip():
     """Detecte l'IP LAN de la machine (pour acces mobile/reseau)."""
     import socket
@@ -1552,15 +1592,10 @@ def resoudre_math_localement(texte):
         return None
     
     try:
-        # Dictionnaire de sécurité pour eval
-        safe_dict = {
-            "sqrt": math.sqrt,
-            "pow": math.pow,
-            "pi": math.pi,
-            "e": math.e
-        }
-        resultat = eval(expr, {"__builtins__": None}, safe_dict)
-        
+        # Evaluation via parser AST whiteliste (pas d'eval/exec) : seuls
+        # nombres, operateurs arithmetiques, sqrt/pow et pi/e sont autorises.
+        resultat = _safe_eval_math(expr)
+
         # Formatage du résultat
         if isinstance(resultat, float) and resultat.is_integer():
             resultat = int(resultat)
