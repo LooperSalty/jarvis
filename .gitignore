@@ -1,0 +1,79 @@
+# Secrets et configuration personnelle
+.env
+.env.*
+!.env.example
+credentials.json
+token.json
+token.bin
+*.token
+
+# Config Home Assistant perso (entites reelles). Modele : jarvis_home_config_example.py
+jarvis_home_config.py
+
+# Memoire et historique perso de Jarvis
+jarvis_memoire.json
+jarvis_historique.json
+
+# Logs et artefacts d'execution
+*.log
+*.log.err
+jarvis_tts_*.mp3
+*.mp3
+*.wav
+
+# Captures et artefacts temporaires
+_orb_v*.png
+_screenshot_*.py
+_check.py
+
+# Icones generees
+jarvis_tray.ico
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Frontend Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/*.tsbuildinfo
+
+# Sous-projets externes (autre repo)
+OpenJarvis-main/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Build PyInstaller (artefacts ignores, specs versionnes)
+build/
+dist/
+*.spec
+!Jarvis.spec
+!JarvisWeb.spec
+!model_advisor/ModelAdvisor.spec
+# .exe trop lourds pour git (regenerable via build_all.bat)
+*.exe
+apprendre/dataset_propre.jsonl
+apprendre/_learn_state.json
+apprendre/prompt_actif.txt
+apprendre/prompt_optimise.txt
+apprendre/lora_jarvis/
+apprendre/_tinyshakespeare.txt
