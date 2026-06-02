@@ -10,9 +10,10 @@ token.bin
 # Config Home Assistant perso (entites reelles). Modele : jarvis_home_config_example.py
 jarvis_home_config.py
 
-# Memoire et historique perso de Jarvis
+# Memoire, historique et profil perso de Jarvis (donnees personnelles)
 jarvis_memoire.json
 jarvis_historique.json
+jarvis_profil.json
 
 # Logs et artefacts d'execution
 *.log

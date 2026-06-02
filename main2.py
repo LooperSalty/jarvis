@@ -36,6 +36,12 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from jarvis_config import USER_NAME
+from jarvis_profil import (
+    charger_profil,
+    sauvegarder_profil,
+    profil_pour_ui,
+    construire_contexte_profil,
+)
 
 # Chargement des variables d'environnement
 load_dotenv()
@@ -509,6 +515,44 @@ def construire_contexte_memoire():
         lignes.append(f"  - {cle} : {data['valeur']} (note le {data['timestamp']})")
     return "\n".join(lignes)
 
+
+def construire_status():
+    """Instantane de l'etat du systeme pour le tableau de bord de l'interface."""
+    memoire = charger_memoire()
+    if FORCE_OLLAMA:
+        cerveau = "Ollama (100% local)"
+    elif GEMINI_DISPONIBLE:
+        cerveau = "Gemini (cloud)"
+    else:
+        cerveau = "Local / repli"
+    integrations = []
+    if HA_URL:
+        integrations.append("Home Assistant")
+    if OBSIDIAN:
+        integrations.append("Obsidian")
+    if os.getenv("MEROSS_EMAIL"):
+        integrations.append("Meross")
+    if os.path.exists("credentials.json"):
+        integrations.append("Google")
+    try:
+        profil_rempli = bool(charger_profil())
+    except Exception:
+        profil_rempli = False
+    return {
+        "user_name": USER_NAME,
+        "cerveau": cerveau,
+        "gemini": bool(GEMINI_DISPONIBLE),
+        "force_ollama": bool(FORCE_OLLAMA),
+        "clients": len(CONNECTED_CLIENTS),
+        "muted": bool(IS_MUTED),
+        "iron_man": bool(MODE_IRON_MAN),
+        "memoire_count": len(memoire),
+        "historique_count": len(historique) if "historique" in globals() else 0,
+        "profil_rempli": profil_rempli,
+        "lan_ip": LAN_IP,
+        "integrations": integrations,
+    }
+
 # ==========================================
 # WEBSOCKET
 # ==========================================
@@ -585,6 +629,24 @@ async def ws_handler(websocket):
                         except Exception as e:
                             print(f"[OBSIDIAN] read jour echec : {e}")
                     await websocket.send(json.dumps({"action": "conversation_content", "date": date, "content": content}))
+                elif data.get("type") == "get_profile":
+                    await websocket.send(json.dumps({
+                        "action": "profile_data",
+                        "profile": profil_pour_ui(),
+                    }))
+                elif data.get("type") == "save_profile":
+                    saved = sauvegarder_profil(data.get("profile") or {})
+                    print(f"[PROFIL] Profil enregistre ({len(saved)} champs).")
+                    await websocket.send(json.dumps({
+                        "action": "profile_saved",
+                        "ok": True,
+                        "count": len(saved),
+                    }))
+                elif data.get("type") == "get_status":
+                    await websocket.send(json.dumps({
+                        "action": "status_data",
+                        "status": construire_status(),
+                    }))
                 elif data.get("type") == "stop_audio":
                     global STOP_PARLER
                     STOP_PARLER = True
@@ -679,6 +741,9 @@ def construire_system_prompt():
         "- Reste poli mais garde une touche de sarcasme affectueux propre à ton personnage.\n\n"
         + CREATOR_INFO
     )
+    contexte_profil = construire_contexte_profil()
+    if contexte_profil:
+        base += "\n\n" + contexte_profil + "\n"
     base += (
         f"\n\nTu es connecte a Home Assistant, la domotique de {USER_NAME}.\n"
         f"Quand {USER_NAME} parle de lumieres, prises, chauffage, temperature, "
