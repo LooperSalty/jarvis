@@ -6,6 +6,7 @@ Gain de temps quotidien : ouverture rapide de projets, git, notes, timer, presse
 from __future__ import annotations
 
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -15,14 +16,15 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from jarvis_config import USER_NAME
 
+HOME = Path.home()
 
 _PROJECT_ROOTS = [
-    Path(os.environ.get("USERPROFILE", "")) / "Downloads",
-    Path(os.environ.get("USERPROFILE", "")) / "Documents",
-    Path(os.environ.get("USERPROFILE", "")) / "Desktop",
-    Path(os.environ.get("USERPROFILE", "")) / "Projects",
-    Path(os.environ.get("USERPROFILE", "")) / "Code",
-    Path(os.environ.get("USERPROFILE", "")) / "dev",
+    HOME / "Downloads",
+    HOME / "Documents",
+    HOME / "Desktop",
+    HOME / "Projects",
+    HOME / "Code",
+    HOME / "dev",
 ]
 _PROJECT_MARKERS = (".git", "package.json", "pyproject.toml", "Cargo.toml", "go.mod", "pom.xml")
 _MAX_DEPTH = 4
@@ -77,7 +79,12 @@ def _ouvrir_projet_vscode(nom: str) -> tuple[str, bool]:
         except Exception:
             pass
     try:
-        os.startfile(str(p))
+        if os.name == "nt":
+            os.startfile(str(p))  # type: ignore[attr-defined]
+        elif platform.system() == "Darwin":
+            subprocess.Popen(["open", str(p)], shell=False)
+        else:
+            subprocess.Popen(["xdg-open", str(p)], shell=False)
         return f"Dossier {p.name} ouvert dans l'explorateur (VSCode introuvable).", True
     except Exception as e:
         return f"Echec ouverture {p.name} : {e}", False
@@ -89,11 +96,13 @@ def _ouvrir_terminal(dossier: str | None) -> tuple[str, bool]:
         chemin = _trouver_projet(dossier) or Path(os.path.expanduser(dossier))
         if not chemin.exists():
             chemin = None
-    chemin = chemin or Path(os.environ.get("USERPROFILE", "."))
+    chemin = chemin or HOME
 
     wt = shutil.which("wt.exe") or shutil.which("wt")
     try:
-        if wt:
+        if platform.system() == "Darwin":
+            subprocess.Popen(["open", "-a", "Terminal", str(chemin)], shell=False)
+        elif wt:
             subprocess.Popen([wt, "-d", str(chemin)], shell=False)
         else:
             # Le dossier est passe via cwd (jamais concatene dans la commande)
@@ -176,8 +185,12 @@ def _lire_presse_papier() -> tuple[str, bool]:
         contenu = pyperclip.paste()
     except Exception:
         try:
+            cmd = (
+                ["powershell", "-NoProfile", "-Command", "Get-Clipboard"]
+                if os.name == "nt" else ["pbpaste"]
+            )
             r = subprocess.run(
-                ["powershell", "-NoProfile", "-Command", "Get-Clipboard"],
+                cmd,
                 capture_output=True, text=True, timeout=4, shell=False,
             )
             contenu = r.stdout.strip()

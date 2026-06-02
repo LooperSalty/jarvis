@@ -12,7 +12,7 @@ import { injectVisionButton, captureFrame } from "./screen_capture";
 import "./style.css";
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const WS_URL = "ws://localhost:8765";
+const WS_URL = `ws://${window.location.hostname || "127.0.0.1"}:8765`;
 const RECONNECT_INTERVAL_MS = 2_000;
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
@@ -354,7 +354,11 @@ chatArchiveBtn.addEventListener("click", () => {
 textForm.addEventListener("submit", (e) => {
   e.preventDefault();
   const txt = textInput.value.trim();
-  if (!txt || !ws || ws.readyState !== WebSocket.OPEN) return;
+  if (!txt) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    showError(`Backend indisponible sur ${WS_URL}`);
+    return;
+  }
   ws.send(JSON.stringify({ type: "text_command", text: txt }));
   textInput.value = "";
 });

@@ -42,6 +42,30 @@ python jarvis_desktop.py
 python main2.py
 ```
 
+### macOS
+
+Le fichier `requirements.txt` est un freeze Windows complet. Sur macOS, utilise
+plutot le mode web/backend :
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+brew install portaudio
+python -m pip install -r requirements-macos.txt
+cd frontend && npm install && cd ..
+python main2.py
+```
+
+Notes :
+- `jarvis_desktop.py` reste Windows-first : il depend de PyQt5 WebEngine et de
+  `win32api/win32gui` pour la fenetre flottante.
+- Sur macOS, l'interface fiable est `http://localhost:5173` via `main2.py` ou
+  `jarvis_web.py`.
+- Certaines actions systeme sont adaptees (`open`, Terminal, presse-papier,
+  raccourcis Command), mais les automatisations vocales peuvent demander les
+  permissions macOS Accessibilite, Microphone et Enregistrement de l'ecran.
+
 Le backend ouvre 3 ports :
 - `:8765` WebSocket (frontend ↔ backend)
 - `:5173` Vite (frontend Three.js)
