@@ -151,6 +151,7 @@ class WindowBridge(QObject):
     # show_orb passe maintenant l'etat ('thinking'|'speaking') pour adapter la couleur
     show_orb_signal = pyqtSignal(str)
     show_full_signal = pyqtSignal()
+    show_settings_signal = pyqtSignal()
     schedule_hide_signal = pyqtSignal()
     quit_signal = pyqtSignal()
 
@@ -380,7 +381,7 @@ class OrbWindow(QWidget):
 class FullWindow(QWidget):
     """Fenetre complete avec QWebEngineView (chat + historique)."""
 
-    def __init__(self):
+    def __init__(self, initial_hash: str = ""):
         super().__init__()
         self.setWindowTitle("Jarvis — Interface")
         self.resize(FULL_W, FULL_H)
@@ -388,8 +389,20 @@ class FullWindow(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.view = QWebEngineView(self)
-        self.view.setUrl(QUrl(JARVIS_URL_FULL))
+        self.view.setUrl(QUrl(JARVIS_URL_FULL + initial_hash))
         layout.addWidget(self.view)
+
+    def go_to_section(self, section: str):
+        """Ouvre une section de l'UI (#parametres / #dashboard) sur une fenetre
+        deja chargee, en simulant un changement de hash."""
+        js = (
+            "location.hash=%r;"
+            "window.dispatchEvent(new HashChangeEvent('hashchange'));" % section
+        )
+        try:
+            self.view.page().runJavaScript(js)
+        except Exception:
+            pass
 
     def show_centered(self):
         wx, wy, ww, wh = _get_work_area()
@@ -417,6 +430,7 @@ class WindowController(QObject):
 
         bridge.show_orb_signal.connect(self._show_orb)
         bridge.show_full_signal.connect(self._show_full)
+        bridge.show_settings_signal.connect(self._show_settings)
         bridge.schedule_hide_signal.connect(self._schedule_hide)
         bridge.quit_signal.connect(self._quit)
 
@@ -436,6 +450,18 @@ class WindowController(QObject):
         self.full_window.show_centered()
         self._mode = "full"
         _log("show_full (mode=full)")
+
+    def _show_settings(self):
+        self._hide_timer.stop()
+        self.orb_window.hide()
+        first = self.full_window is None
+        if first:
+            self.full_window = FullWindow(initial_hash="#parametres")
+        self.full_window.show_centered()
+        if not first:
+            self.full_window.go_to_section("#parametres")
+        self._mode = "full"
+        _log("show_settings (mode=full)")
 
     def _schedule_hide(self):
         if self._mode == "full":
@@ -541,14 +567,17 @@ def _setup_tray(app: QApplication, bridge: WindowBridge) -> QSystemTrayIcon:
 
     menu = QMenu()
     open_act = QAction("Ouvrir l'interface", menu)
+    settings_act = QAction("Paramètres", menu)
     hide_act = QAction("Cacher", menu)
     quit_act = QAction("Quitter", menu)
 
     open_act.triggered.connect(bridge.show_full_signal.emit)
+    settings_act.triggered.connect(bridge.show_settings_signal.emit)
     hide_act.triggered.connect(bridge.schedule_hide_signal.emit)
     quit_act.triggered.connect(bridge.quit_signal.emit)
 
     menu.addAction(open_act)
+    menu.addAction(settings_act)
     menu.addAction(hide_act)
     menu.addSeparator()
     menu.addAction(quit_act)

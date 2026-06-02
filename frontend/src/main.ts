@@ -9,6 +9,7 @@
 
 import { createOrb, type OrbState } from "./orb";
 import { injectVisionButton, captureFrame } from "./screen_capture";
+import { initSettings, handleSettingsMessage } from "./settings";
 import "./style.css";
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -135,6 +136,8 @@ function connect(): void {
       };
 
       const dataAny = data as unknown as Record<string, unknown>;
+
+      if (handleSettingsMessage(dataAny)) return;
 
       if (data.action === "chat_message" && typeof data.text === "string") {
         addChatMessage(data.role === "user" ? "user" : "jarvis", data.text, data.ts);
@@ -462,6 +465,7 @@ setConnected(false);
 applyState("idle");
 setMuted(false);
 injectVisionButton();
+initSettings(() => ws);
 
 // Mode "mini" : URL ?mini=1 → masque toute l'UI via CSS, garde l'orbe.
 // jarvis_desktop.py charge la page avec ?mini=1 pour la mini-fenetre flottante,
