@@ -3,14 +3,32 @@ import threading
 import asyncio
 import google.genai as genai
 from google.genai import types
-import speech_recognition as sr
 import edge_tts
-import pygame
 import os
+
+# Imports audio/GUI tolerants : en conteneur (Docker, mode serveur headless)
+# il n'y a ni micro, ni haut-parleur, ni display. Ces libs crashent a l'import
+# (pyautogui) ou a l'usage (pyaudio/pygame mixer) sans peripherique. On degrade
+# en None ; tout le code en aval (boucle vocale, TTS, actions souris) est soit
+# saute en mode headless, soit deja protege par try/except.
+try:
+    import speech_recognition as sr
+except Exception as _e:
+    print(f"[VOIX] speech_recognition indisponible : {_e}")
+    sr = None
+try:
+    import pygame
+except Exception as _e:
+    print(f"[AUDIO] pygame indisponible : {_e}")
+    pygame = None
 from dotenv import load_dotenv
 import random
 import math
-import pyautogui
+try:
+    import pyautogui
+except Exception as _e:
+    print(f"[GUI] pyautogui indisponible (pas de display ?) : {_e}")
+    pyautogui = None
 import webbrowser
 import subprocess
 import requests
@@ -21,7 +39,11 @@ import re
 import shutil
 from pathlib import Path
 from datetime import datetime
-import pyaudio
+try:
+    import pyaudio
+except Exception as _e:
+    print(f"[AUDIO] pyaudio indisponible : {_e}")
+    pyaudio = None
 import websockets
 import json
 from PIL import Image
@@ -39,6 +61,12 @@ from jarvis_config import USER_NAME
 
 # Chargement des variables d'environnement
 load_dotenv()
+
+# Mode serveur headless (Docker / VM sans peripheriques) : desactive la boucle
+# vocale (micro) et la sortie audio locale (pygame). Le serveur WebSocket, le
+# serveur HTTP mobile et le frontend restent actifs ; le STT/TTS se fait alors
+# cote navigateur (Web Speech API) via l'interface web ou mobile.
+HEADLESS = os.getenv("JARVIS_HEADLESS", "0") == "1"
 
 # Securite : auth WebSocket par token (clients LAN) + secrets via keyring.
 # Imports tolerants (comme les autres modules optionnels) : -> None si echec,
@@ -123,7 +151,9 @@ groq_client = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai
 MODELS_LIST     = ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash-exp", "gemini-1.5-flash"]
 CHOSEN_MODEL    = MODELS_LIST[0]
 
-OLLAMA_URL      = "http://127.0.0.1:11434"
+# Surchageable via .env (ex. Docker : OLLAMA_URL=http://ollama:11434).
+# Meme defaut que jarvis_actions/memory_rag.py et model_advisor_service.py.
+OLLAMA_URL      = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODELS   = ["qwen2.5:7b", "qwen2.5", "mistral:7b", "mistral:instruct", "llama3.1:8b", "llama3.2:3b", "llama3.2", "gemma2:9b", "deepseek-coder-v2:lite"]
 FORCE_OLLAMA    = os.getenv("FORCE_OLLAMA", "1" if not GEMINI_DISPONIBLE else "0") == "1"
 
@@ -1829,6 +1859,13 @@ async def parler(texte):
     # Mute persistant : on log la reponse mais on ne la joue pas
     if IS_MUTED:
         print(f"[MUTE] Reponse non vocalisee : {texte_tts[:80]}")
+        await send_web_state("idle")
+        return
+
+    # Mode serveur headless / pygame absent : le texte a deja ete diffuse aux
+    # clients web et mobile (broadcast_chat ci-dessus). Pas de sortie audio locale.
+    if HEADLESS or pygame is None:
+        print(f"[HEADLESS] Reponse non vocalisee localement : {texte_tts[:80]}")
         await send_web_state("idle")
         return
 
@@ -4159,6 +4196,12 @@ def start_ia():
 
     threading.Thread(target=lambda: asyncio.run(start_ws()), daemon=True).start()
 
+    # Mode serveur headless : pas de micro ni de sortie audio locale. Le serveur
+    # WebSocket (thread ci-dessus) suffit ; on n'entre pas dans la boucle vocale.
+    if HEADLESS:
+        print("[HEADLESS] Mode serveur : greeting vocal et boucle micro desactives.")
+        return
+
     loop.run_until_complete(parler(f"Bonjour, {USER_NAME}"))
     loop.close()
     ecouter()
@@ -4170,8 +4213,12 @@ def start_ia():
 # dans le dossier frontend/ (npm run dev -> http://localhost:5173)
 # Le WebSocket est deja demarre par start_ia() sur ws://localhost:8765
 
-pygame.init()
-pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+if pygame is not None and not HEADLESS:
+    try:
+        pygame.init()
+        pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+    except Exception as _e:
+        print(f"[AUDIO] Init pygame mixer echouee (mode sans audio ?) : {_e}")
 
 def start_global_hotkey():
     """Ctrl+Shift+J depuis n'importe ou : ouvre/focus la fenetre Jarvis dans le navigateur."""
@@ -4245,12 +4292,15 @@ def start_frontend_static_server(port: int = 5173):
             super().__init__(*args, directory=dist_dir, **kwargs)
         def log_message(self, format, *args):
             pass
+    # En conteneur (headless) on ecoute sur 0.0.0.0 pour etre joignable via le
+    # port publie ; en mode desktop local on reste sur la loopback.
+    host = "0.0.0.0" if HEADLESS else "127.0.0.1"
     try:
-        server = http.server.HTTPServer(("127.0.0.1", port), StaticHandler)
+        server = http.server.HTTPServer((host, port), StaticHandler)
     except OSError as e:
         print(f"[FRONTEND-STATIC] Port {port} indisponible ({e}). Le frontend est peut-etre deja servi.")
         return
-    print(f"[FRONTEND-STATIC] Bundle servi sur http://127.0.0.1:{port}")
+    print(f"[FRONTEND-STATIC] Bundle servi sur http://{host}:{port}")
     server.serve_forever()
 
 def main():
@@ -4269,8 +4319,9 @@ def main():
     print("=" * 60)
     print()
 
-    # Mode app standalone : pas de Vite, pas de navigateur — sert le bundle build directement
-    no_browser = os.getenv("JARVIS_NO_BROWSER", "0") == "1"
+    # Mode app standalone : pas de Vite, pas de navigateur — sert le bundle build directement.
+    # Le mode headless (Docker) l'implique toujours.
+    no_browser = HEADLESS or os.getenv("JARVIS_NO_BROWSER", "0") == "1"
 
     frontend_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
     frontend_process = None
@@ -4291,7 +4342,9 @@ def main():
     threading.Thread(target=start_mobile_http_server, daemon=True).start()
 
     # Raccourci global Ctrl+Shift+J pour ramener Jarvis au premier plan
-    threading.Thread(target=start_global_hotkey, daemon=True).start()
+    # (inutile et privilegie en conteneur : saute en mode headless).
+    if not HEADLESS:
+        threading.Thread(target=start_global_hotkey, daemon=True).start()
 
     # Lancer le backend IA dans un thread
     threading.Thread(target=start_ia, daemon=True).start()

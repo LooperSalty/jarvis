@@ -1,0 +1,56 @@
+# J.A.R.V.I.S — orchestration Docker (mode serveur headless)
+#
+#   docker compose up -d --build      # backend seul (cerveau cloud : Gemini/Groq/Grok)
+#   docker compose --profile local up -d --build   # + Ollama embarque (100% local)
+#
+# Acces apres demarrage :
+#   - UI orbe + dashboard : http://localhost:5173  (dashboard : /dashboard.html)
+#   - UI mobile           : http://localhost:8080
+#   - WebSocket backend    : ws://localhost:8765
+#
+# Les cles API se mettent dans un fichier .env a la racine (voir .env.example).
+
+services:
+  jarvis:
+    build: .
+    image: jarvis:latest
+    container_name: jarvis
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      JARVIS_HEADLESS: "1"
+      JARVIS_NO_BROWSER: "1"
+      # Decommente pour le mode local avec le service ollama ci-dessous :
+      # OLLAMA_URL: "http://ollama:11434"
+    ports:
+      - "5173:5173"   # UI orbe + dashboard
+      - "8765:8765"   # WebSocket
+      - "8080:8080"   # UI mobile
+    # Persistance optionnelle : pour conserver memoire/profil entre rebuilds,
+    # cree les fichiers a la racine puis decommente les binds ci-dessous.
+    # volumes:
+    #   - ./jarvis_memoire.json:/app/jarvis_memoire.json
+    #   - ./jarvis_profile.json:/app/jarvis_profile.json
+
+  # --- Service Ollama optionnel (mode 100% local, profil "local") ---
+  ollama:
+    image: ollama/ollama:latest
+    container_name: jarvis-ollama
+    profiles: ["local"]
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    # Pour activer le GPU NVIDIA, decommente (necessite nvidia-container-toolkit) :
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  ollama_models:

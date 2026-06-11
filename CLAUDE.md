@@ -8,6 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 jarvis/
 ├── Jarvis.exe / JarvisWeb.exe / ModelAdvisor.exe  ← double-cliquables (gitignored, regenerables)
 ├── build_all.bat                                  ← rebuild les 3 .exe + copie a la racine
+├── Dockerfile / docker-compose.yml / .dockerignore ← image serveur headless (Linux)
+├── requirements-docker.txt                        ← deps minimales Linux (PAS le freeze Windows)
 ├── main2.py                                       ← gros entry point (backend, WS, voix, IA)
 ├── jarvis_desktop.py / jarvis_web.py              ← entries des 2 modes Jarvis
 ├── jarvis_brain_local.py                          ← cerveau local Ollama (extrait de main2.py)
@@ -68,6 +70,12 @@ cd frontend && npm install
 # Mode 100% local (force Ollama, ignore les clés cloud)
 FORCE_OLLAMA=1 python main2.py
 ollama serve && ollama pull llama3.2:3b
+
+# Docker (mode serveur headless — pas de micro/audio/GUI, STT/TTS côté navigateur)
+docker compose up -d --build                    # backend seul (cerveau cloud)
+docker compose --profile local up -d --build    # + Ollama embarqué (100% local)
+# Image basée sur requirements-docker.txt (set minimal Linux), PAS requirements.txt.
+# Ports publiés : 5173 (orbe+dashboard), 8080 (mobile), 8765 (WebSocket).
 ```
 
 Le `.bat` `DÉMARRER_JARVIS.bat` (non versionné) contient un chemin Python codé en dur et n'est pas portable — utilise `python main2.py` directement (ou `scripts/Lancer_Jarvis.bat` qui est plus simple).
@@ -183,6 +191,8 @@ Variables d'env optionnelles :
 - `JARVIS_USER_NAME` — prénom utilisé par Jarvis (défaut `Monsieur`)
 - `FORCE_OLLAMA=1` — force le mode local même si Gemini est dispo
 - `JARVIS_NO_BROWSER=1` — désactive l'auto-launch Vite + navigateur ; sert `frontend/dist/` (build prod) directement sur le port 5173. Utilisé par `jarvis_desktop.py` et le `.exe`.
+- `JARVIS_HEADLESS=1` — **mode serveur (Docker)** : désactive la boucle vocale (micro) et la sortie audio locale (pygame), garde WS/HTTP/frontend. Implique `JARVIS_NO_BROWSER`, fait écouter le frontend statique sur `0.0.0.0`, saute le hotkey clavier. Le STT/TTS se fait côté navigateur. Les imports `pyautogui`/`pyaudio`/`pygame`/`speech_recognition` sont rendus optionnels (→ `None` si absents) pour permettre le boot Linux sans périphérique.
+- `OLLAMA_URL` — URL du serveur Ollama (défaut `http://127.0.0.1:11434`, ex. Docker `http://ollama:11434`). Lu par `main2.py`, `memory_rag.py`, `model_advisor_service.py`.
 - `OPENCLAW_URL` / `OPENCLAW_TOKEN` / `OPENCLAW_HOOKS_TOKEN` / `OPENCLAW_AGENT_ID` — pont OpenClaw (voir `jarvis_actions/openclaw.py`)
 - `PYTHONUNBUFFERED=1` — recommandé en debug pour voir les logs immédiatement
 

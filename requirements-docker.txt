@@ -1,0 +1,34 @@
+# Dependances pour le mode serveur HEADLESS (Docker / Linux).
+#
+# IMPORTANT : ne PAS utiliser requirements.txt dans Docker — c'est un `pip freeze`
+# de l'environnement Windows complet (pywin32, PyQt5, comtypes, pywinauto...) qui
+# ne s'installe pas sur Linux. Ce fichier ne garde que ce dont le backend web a
+# besoin : serveur WebSocket + HTTP + chaine IA + connecteurs.
+#
+# Volontairement ABSENTS (peripheriques / Windows only, degrades en None par main2) :
+#   pyautogui, pyaudio, pygame, SpeechRecognition, pywin32, keyboard, pystray...
+# => le STT/TTS se fait cote navigateur (Web Speech API) via l'UI web/mobile.
+
+# --- Coeur backend ---
+websockets
+python-dotenv
+requests
+
+# --- Cerveau IA ---
+google-genai
+openai
+edge-tts
+
+# --- Google APIs (Gmail/Docs/Drive/Calendar/Sheets, optionnel via OAuth) ---
+google-api-python-client
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+
+# --- Vision / images ---
+pillow
+
+# --- Connecteurs & proactivite (modules optionnels, degrades si absents) ---
+spotipy>=2.23      # Spotify
+psutil             # triggers contextuels
+numpy              # memoire RAG (embeddings)

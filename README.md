@@ -76,6 +76,48 @@ Le backend ouvre 3 ports :
 - `:5173` Vite (frontend Three.js)
 - `:8080` HTTP (interface mobile)
 
+### Docker (mode serveur headless)
+
+Pour faire tourner Jarvis en conteneur (serveur Linux, NAS, VM…). Un conteneur
+n'a ni micro, ni haut-parleur, ni interface graphique : le backend tourne en
+**mode headless** (`JARVIS_HEADLESS=1`) et le **STT/TTS se fait cote navigateur**
+(Web Speech API) via l'UI web ou mobile. La boucle vocale locale et l'audio
+pygame sont desactives ; tout le reste (chaine IA Gemini/Groq/Grok/Ollama,
+dashboard, connecteurs, mobile) fonctionne.
+
+```bash
+# 1. Renseigner les cles API (au minimum GEMINI_API_KEY, ou rien pour Ollama)
+cp .env.example .env        # puis editer .env
+
+# 2a. Backend seul (cerveau cloud)
+docker compose up -d --build
+
+# 2b. Ou avec Ollama embarque (100% local, profil "local")
+docker compose --profile local up -d --build
+docker compose exec ollama ollama pull qwen2.5:7b   # 1re fois : telecharger un modele
+```
+
+Puis ouvrir :
+- **UI orbe + dashboard** : http://localhost:5173 (dashboard sur `/dashboard.html`)
+- **UI mobile** : http://localhost:8080
+- WebSocket : `ws://localhost:8765`
+
+Sans Compose :
+
+```bash
+docker build -t jarvis .
+docker run -d --env-file .env -p 5173:5173 -p 8765:8765 -p 8080:8080 jarvis
+```
+
+Notes :
+- L'image utilise **`requirements-docker.txt`** (set minimal Linux), **pas**
+  `requirements.txt` (freeze Windows non installable sur Linux).
+- Mode local : le service `jarvis` doit pointer vers le conteneur Ollama —
+  decommente `OLLAMA_URL: "http://ollama:11434"` dans `docker-compose.yml`.
+- Le code est fige dans l'image : rebuild (`docker compose up -d --build`)
+  apres toute modif. Persistance memoire/profil : voir les binds commentes
+  dans `docker-compose.yml`.
+
 ## Configuration
 
 Copier `.env.example` vers `.env` et remplir les cles dont tu as besoin. **Aucune cle n'est obligatoire** : sans clef Gemini valide, Jarvis bascule automatiquement sur Ollama.
