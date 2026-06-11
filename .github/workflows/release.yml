@@ -1,0 +1,144 @@
+name: Release
+
+# Publie une release GitHub a chaque tag vX.Y.Z (ou manuellement).
+# - build-windows : Jarvis.exe + JarvisWeb.exe via PyInstaller (best-effort)
+# - build-macos   : binaire mode web macOS via PyInstaller (best-effort)
+# - release       : bundle frontend (fiable) + binaires disponibles -> release
+# Les builds de binaires sont en continue-on-error : la release est publiee
+# meme si une plateforme echoue (le bundle frontend est toujours joint).
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-frontend:
+    name: build-frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build du bundle frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+      - name: Archive du bundle
+        run: |
+          cd frontend && zip -r ../jarvis-frontend-dist.zip dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: jarvis-frontend-dist.zip
+          if-no-files-found: error
+
+  build-windows:
+    name: build-windows
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build frontend (embarque dans le .exe)
+        working-directory: frontend
+        run: |
+          npm ci
+          npx vite build
+      - name: Installer les dependances Python
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+      - name: Build Jarvis.exe + JarvisWeb.exe
+        run: |
+          python -m PyInstaller Jarvis.spec --clean --noconfirm
+          python -m PyInstaller JarvisWeb.spec --clean --noconfirm
+      - name: Archive des binaires Windows
+        run: |
+          Compress-Archive -Path dist/Jarvis.exe,dist/JarvisWeb.exe -DestinationPath jarvis-windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: jarvis-windows.zip
+          if-no-files-found: warn
+
+  build-macos:
+    name: build-macos
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build frontend (embarque)
+        working-directory: frontend
+        run: |
+          npm ci
+          npx vite build
+      - name: Dependances systeme (portaudio pour PyAudio)
+        run: brew install portaudio || true
+      - name: Installer les dependances Python (mode web macOS)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-macos.txt
+          pip install pyinstaller
+      - name: Build du binaire web macOS
+        run: |
+          python -m PyInstaller --onefile --name Jarvis-macos \
+            --add-data "frontend/dist:frontend/dist" \
+            --add-data "mobile:mobile" \
+            --collect-submodules jarvis_actions \
+            jarvis_web.py
+      - name: Archive du binaire macOS
+        run: |
+          cd dist && zip -r ../jarvis-macos.zip Jarvis-macos
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: jarvis-macos.zip
+          if-no-files-found: warn
+
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    needs: [build-frontend, build-windows, build-macos]
+    if: always()
+    steps:
+      - name: Recuperer les artefacts disponibles
+        uses: actions/download-artifact@v4
+        with:
+          path: artefacts
+          merge-multiple: true
+      - name: Lister les artefacts
+        run: ls -R artefacts || echo "aucun artefact"
+      - name: Publier la release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: |
+            artefacts/jarvis-frontend-dist.zip
+            artefacts/jarvis-windows.zip
+            artefacts/jarvis-macos.zip

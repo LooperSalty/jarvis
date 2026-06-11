@@ -126,6 +126,17 @@ Modules cles :
 - **Desktop** : pywebview (WebView2 sur Windows)
 - **Hotkey global** : keyboard + pygetwindow
 
+## Releases
+
+Pousser un tag `vX.Y.Z` déclenche `.github/workflows/release.yml` : build du bundle frontend (fiable) + des binaires Windows (`Jarvis.exe`, `JarvisWeb.exe`) et macOS (mode web, best-effort), puis publication d'une release GitHub avec les artefacts. Bumper `VERSION` dans `jarvis_version.py` en même temps que le tag.
+
+```bash
+# Exemple
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+`jarvis_version.check_update()` interroge l'API GitHub pour signaler une version plus récente.
+
 ## Licence
 
 Personnel, pas de licence ouverte pour le moment.
