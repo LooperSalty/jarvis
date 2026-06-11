@@ -1,0 +1,18 @@
+[
+  {
+    "id": "exemple-vscode-lance",
+    "nom": "VS Code lance",
+    "processus": "Code.exe",
+    "evenement": "lancement",
+    "commande": "ouvre spotify",
+    "actif": true
+  },
+  {
+    "id": "exemple-chrome-ferme",
+    "nom": "Chrome ferme",
+    "processus": "chrome",
+    "evenement": "fermeture",
+    "commande": "fais une pause",
+    "actif": false
+  }
+]

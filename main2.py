@@ -520,6 +520,21 @@ except Exception as e:
     claude_bridge = None
     CLAUDE_INACTIVITE_SEUIL_JOURS = 3
 
+# Proactivite (PR D) : routines programmees + triggers contextuels.
+# Imports tolerants -> None si echec (modules optionnels). Sans eux, le
+# comportement reste strictement identique a aujourd'hui.
+try:
+    from jarvis_actions import routines
+except Exception as e:
+    print(f"[ROUTINES] Module routines desactive : {e}")
+    routines = None
+
+try:
+    from jarvis_actions import triggers
+except Exception as e:
+    print(f"[TRIGGERS] Module triggers desactive : {e}")
+    triggers = None
+
 try:
     from jarvis_actions import meross
 except Exception as e:
@@ -655,6 +670,10 @@ try:
         # (http://<LAN_IP>:8080/?token=...). Le token est lu cote dashboard via
         # import direct de jarvis_security (jamais expose ici).
         "lan_ip": LAN_IP,
+        # Execution d'une commande Jarvis (bouton "Tester" d'une routine). Lambda
+        # a liaison tardive : _executer_commande_proactive est defini plus bas
+        # dans le module mais resolu seulement a l'appel.
+        "executer_commande": lambda texte: _executer_commande_proactive(texte),
     })
 except Exception as e:
     print(f"[DASHBOARD] Module jarvis_dashboard_api desactive : {e}")
@@ -3933,6 +3952,25 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None):
     # Réinitialiser le flag audio PC
     _skip_pc_audio = False
 
+
+async def _executer_commande_proactive(texte: str) -> None:
+    """Exécute une commande déclenchée de façon proactive (routine ou trigger).
+
+    Callable injectée dans les modules `routines` et `triggers` : elle se
+    comporte comme si l'utilisateur avait prononcé `texte`, en passant par
+    `traiter_reponse_ia`. Encapsulée dans un try/except pour qu'une erreur
+    n'interrompe jamais la boucle du planificateur ou de la surveillance.
+
+    Args:
+        texte: La commande à exécuter (ex: "quelle est la météo").
+    """
+    try:
+        print(f"[PROACTIF] Exécution commande proactive : '{texte}'")
+        await traiter_reponse_ia(texte)
+    except Exception as e:
+        print(f"[PROACTIF] Echec exécution commande proactive '{texte}' : {e}")
+
+
 def nettoyer_commande(texte):
     t = texte.lower().strip()
     for variante in ["jarvis,", "jarvis"]:
@@ -4203,6 +4241,23 @@ def start_ia():
                 intervalle_check_s=3600.0,
             ))
             print(f"[CLAUDE-WATCH] Surveillance inactivite active (seuil : {CLAUDE_INACTIVITE_SEUIL_JOURS} jours).")
+        # Proactivite (PR D) : planificateur de routines + surveillance de triggers.
+        # Les deux tournent dans la meme event loop que le serveur WebSocket et
+        # reçoivent _executer_commande_proactive comme callable d'exécution.
+        if routines:
+            try:
+                asyncio.create_task(routines.demarrer_planificateur(_executer_commande_proactive))
+                print("[ROUTINES] Planificateur de routines actif.")
+            except Exception as e:
+                print(f"[ROUTINES] Echec demarrage planificateur : {e}")
+        if triggers and triggers.disponible():
+            try:
+                asyncio.create_task(triggers.demarrer_surveillance(_executer_commande_proactive))
+                print("[TRIGGERS] Surveillance des triggers contextuels active.")
+            except Exception as e:
+                print(f"[TRIGGERS] Echec demarrage surveillance : {e}")
+        elif triggers:
+            print("[TRIGGERS] psutil indisponible : surveillance des triggers desactivee.")
         async with websockets.serve(ws_handler, "0.0.0.0", 8765):
             await asyncio.Future()
 

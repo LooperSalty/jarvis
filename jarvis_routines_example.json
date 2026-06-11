@@ -1,0 +1,18 @@
+[
+  {
+    "id": "exemple-meteo-matin",
+    "nom": "Meteo du matin",
+    "heure": "08:00",
+    "jours": [0, 1, 2, 3, 4],
+    "commande": "quelle est la meteo",
+    "actif": true
+  },
+  {
+    "id": "exemple-lumieres-soir",
+    "nom": "Lumieres du salon le soir",
+    "heure": "19:30",
+    "jours": [],
+    "commande": "eteins la lumiere du salon",
+    "actif": false
+  }
+]
