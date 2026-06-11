@@ -126,6 +126,11 @@ CLES_GEREES: tuple[str, ...] = (
     "TELEGRAM_BOT_TOKEN",
     "TELEGRAM_CHAT_ID",
     "DISCORD_WEBHOOK_URL",
+    # OpenClaw : pont vers l'agent IA personnel local (gateway :18789).
+    # Deux tokens DISTINCTS cote OpenClaw : gateway.auth.token et hooks.token.
+    "OPENCLAW_URL",
+    "OPENCLAW_TOKEN",
+    "OPENCLAW_HOOKS_TOKEN",
 )
 
 # Cles SECRETES parmi CLES_GEREES : stockees dans keyring si dispo (jamais en
@@ -144,6 +149,9 @@ CLES_SECRETES: frozenset[str] = frozenset({
     "SPOTIFY_CLIENT_SECRET",
     "TELEGRAM_BOT_TOKEN",
     "DISCORD_WEBHOOK_URL",
+    # OPENCLAW_URL n'est pas un secret (adresse locale) ; les deux tokens oui.
+    "OPENCLAW_TOKEN",
+    "OPENCLAW_HOOKS_TOKEN",
 })
 
 _PLACEHOLDERS = ("VOTRE_API", "VOTRE_CLE_ICI")
@@ -560,6 +568,10 @@ def _construire_integrations(env_keys: dict[str, bool], ollama_ok: bool) -> dict
         "meross": env_keys.get("MEROSS_EMAIL", False) and env_keys.get("MEROSS_PASSWORD", False),
         "obsidian": _obsidian_actif(env_keys),
         "ollama": bool(ollama_ok),
+        # OpenClaw : configure des qu'un des deux tokens (gateway ou hooks)
+        # est present — chaque token active une partie du pont.
+        "openclaw": env_keys.get("OPENCLAW_TOKEN", False)
+        or env_keys.get("OPENCLAW_HOOKS_TOKEN", False),
     }
 
 

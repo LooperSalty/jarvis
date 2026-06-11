@@ -262,8 +262,8 @@ function mount(root: HTMLElement): Cleanup {
     el(
       "p",
       "hint",
-      "Les cles des connecteurs Spotify, Telegram et Discord se renseignent " +
-        "dans la section Vue d'ensemble."
+      "Les cles des connecteurs Spotify, Telegram, Discord et OpenClaw se " +
+        "renseignent dans la section Vue d'ensemble."
     )
   );
   root.appendChild(pCatalog.root);

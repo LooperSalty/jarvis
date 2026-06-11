@@ -65,6 +65,7 @@ const INTEGRATIONS: ReadonlyArray<{ id: string; label: string }> = [
   { id: "meross", label: "Meross" },
   { id: "obsidian", label: "Obsidian" },
   { id: "ollama", label: "Ollama" },
+  { id: "openclaw", label: "OpenClaw" },
 ];
 
 /** Liste blanche de repli si le backend ne renvoie pas env_keys. */

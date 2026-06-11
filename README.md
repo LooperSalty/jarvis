@@ -23,6 +23,7 @@ Assistant vocal qui tourne en arriere-plan sur Windows, avec une orbe Three.js c
 - **Dashboard de configuration** : vraie app de config sur `http://localhost:5173/dashboard.html` (lien ⚙ sur l'orbe, ou menu tray "Configuration") — profil utilisateur (famille, adresse, habitudes injectes dans le cerveau), cles API (presentes/absentes, jamais affichees), memoire visualisee en graphe interactif, chat ecrit, connecteurs MCP, skills, et test "quel modele Ollama pour mon PC ?" (detection RAM/GPU + recommandations)
 - **Fenetres d'affichage** : *"Jarvis, montre-moi..."* — Jarvis ouvre une carte HTML sombre (Windows/macOS/Linux) pour montrer listes, comparatifs, images, liens
 - **Connecteurs MCP** : branche des serveurs Model Context Protocol (stdio) via le dashboard, leurs tools deviennent utilisables par l'agent
+- **Pont OpenClaw** : lie Jarvis a ton agent [OpenClaw](https://docs.openclaw.ai) local — *"demande a openclaw de resumer mes messages whatsapp"* (reponse vocalisee), *"envoie a openclaw..."* (tache de fond, reponse sur tes messageries), *"statut openclaw"*. Config : `OPENCLAW_TOKEN` / `OPENCLAW_HOOKS_TOKEN` dans le dashboard
 - **Skills** : depose un `.py` dans `jarvis_skills/` (template dans le README du dossier), Jarvis le charge tout seul — meme a cote du `.exe`
 
 ## Demarrage

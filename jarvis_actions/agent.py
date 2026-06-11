@@ -229,6 +229,30 @@ TOOLS = [
                 required=["title", "content"],
             ),
         ),
+
+        # --- Delegation a OpenClaw (agent IA personnel externe) ---
+        types.FunctionDeclaration(
+            name="ask_openclaw",
+            description=(
+                "Delegue une tache ou une question a OpenClaw, l'agent IA personnel "
+                "de l'utilisateur (assistant externe connecte a ses messageries : "
+                "WhatsApp, Telegram, Discord...). A utiliser UNIQUEMENT quand "
+                "l'utilisateur demande explicitement OpenClaw, ou pour une tache "
+                "qui concerne ses messageries personnelles. Renvoie la reponse "
+                "d'OpenClaw (peut prendre du temps). Si OpenClaw n'est pas "
+                "configure, renvoie un message d'erreur lisible."
+            ),
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "message": types.Schema(
+                        type=types.Type.STRING,
+                        description="La tache/question a transmettre a OpenClaw, formulee clairement.",
+                    ),
+                },
+                required=["message"],
+            ),
+        ),
     ]),
 ]
 
