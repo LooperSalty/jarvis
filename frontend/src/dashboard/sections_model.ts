@@ -2,8 +2,11 @@
  * Section "Modele IA" :
  * - "Analyser mon PC" -> dash_get_specs (cartes OS / CPU / RAM / GPU / VRAM)
  * - cases a cocher des usages (use_cases_disponibles, premier appel avec [])
+ * - usages coches -> recommandation AUTO (dash_model_reco) sans clic
  * - "Recommander" -> dash_model_reco -> tableau (modele, taille, VRAM,
- *   score en barre, raison, badge installe, bouton copier ollama pull)
+ *   score en barre, raison, badge installe)
+ * - "Choisir ce modele" -> dash_model_select (definit le modele local prefere
+ *   + lance ollama pull si absent)
  */
 
 import * as ws from "./ws";
@@ -55,28 +58,6 @@ function scorePercent(score: number): number {
   return Math.max(0, Math.min(100, Math.round(pct)));
 }
 
-/** Copie une commande dans le presse-papier avec repli execCommand. */
-function copyToClipboard(text: string): void {
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard
-      .writeText(text)
-      .then(() => showToast("Commande copiee."))
-      .catch(() => showToast("Copie impossible.", false));
-    return;
-  }
-  try {
-    const area = document.createElement("textarea");
-    area.value = text;
-    document.body.appendChild(area);
-    area.select();
-    document.execCommand("copy");
-    area.remove();
-    showToast("Commande copiee.");
-  } catch {
-    showToast("Copie impossible.", false);
-  }
-}
-
 function specCard(label: string, value: string): HTMLElement {
   const card = el("div", "spec-card");
   card.appendChild(el("span", "spec-label", label));
@@ -107,12 +88,18 @@ function buildModelRow(model: ModelReco): HTMLTableRowElement {
   tr.appendChild(el("td", "td-raison", model.raison));
 
   const tdActions = el("td");
-  if (model.commandeInstall) {
-    const copyBtn = button("Copier la commande", "ghost");
-    copyBtn.title = model.commandeInstall;
-    copyBtn.addEventListener("click", () => copyToClipboard(model.commandeInstall));
-    tdActions.appendChild(copyBtn);
-  }
+  const chooseBtn = button(model.installe ? "Choisir ce modele" : "Installer & choisir", "primary");
+  chooseBtn.title = model.installe
+    ? `Definir ${model.name} comme modele local de Jarvis`
+    : `Installer (${model.commandeInstall}) puis le definir comme modele local de Jarvis`;
+  chooseBtn.addEventListener("click", () => {
+    if (ws.send({ type: "dash_model_select", model: model.name })) {
+      showToast(model.installe ? "Modele selectionne…" : "Installation lancee…");
+    } else {
+      showToast("Backend deconnecte.", false);
+    }
+  });
+  tdActions.appendChild(chooseBtn);
   tr.appendChild(tdActions);
   return tr;
 }
@@ -185,6 +172,9 @@ function mount(root: HTMLElement): Cleanup {
       input.type = "checkbox";
       input.value = id;
       input.checked = checked.has(id);
+      // Recommandation immediate au cochage/decochage (plus besoin de cliquer
+      // "Recommander" : la liste se met a jour des qu'on change un usage).
+      input.addEventListener("change", lancerReco);
       label.appendChild(input);
       label.appendChild(el("span", "", asString(uc.label, id)));
       usagesBox.appendChild(label);
@@ -208,16 +198,18 @@ function mount(root: HTMLElement): Cleanup {
   }
 
   // ── Actions ──
+  function lancerReco(): void {
+    if (!ws.send({ type: "dash_model_reco", use_cases: selectedUseCases() })) {
+      showToast("Backend deconnecte.", false);
+    }
+  }
+
   analyseBtn.addEventListener("click", () => {
     if (!ws.send({ type: "dash_get_specs" })) {
       showToast("Backend deconnecte.", false);
     }
   });
-  recoBtn.addEventListener("click", () => {
-    if (!ws.send({ type: "dash_model_reco", use_cases: selectedUseCases() })) {
-      showToast("Backend deconnecte.", false);
-    }
-  });
+  recoBtn.addEventListener("click", lancerReco);
 
   // ── Abonnements WS ──
   const offSpecs = ws.on("dash_specs", (msg) => {
@@ -226,6 +218,11 @@ function mount(root: HTMLElement): Cleanup {
   const offReco = ws.on("dash_model_reco", (msg) => {
     renderUseCases(msg.use_cases_disponibles);
     renderModeles(parseModeles(msg.modeles));
+  });
+  const offSelect = ws.on("dash_model_select", (msg) => {
+    showToast(asString(msg.message) || "Modele mis a jour.", asBool(msg.ok));
+    // Rafraichit la liste pour mettre a jour le badge "installe".
+    lancerReco();
   });
   const offStatus = ws.onStatus((ok) => {
     // premier appel avec use_cases vide : recupere la liste des usages
@@ -239,6 +236,7 @@ function mount(root: HTMLElement): Cleanup {
   return () => {
     offSpecs();
     offReco();
+    offSelect();
     offStatus();
   };
 }

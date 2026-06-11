@@ -155,6 +155,11 @@ CHOSEN_MODEL    = MODELS_LIST[0]
 # Meme defaut que jarvis_actions/memory_rag.py et model_advisor_service.py.
 OLLAMA_URL      = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODELS   = ["qwen2.5:7b", "qwen2.5", "mistral:7b", "mistral:instruct", "llama3.1:8b", "llama3.2:3b", "llama3.2", "gemma2:9b", "deepseek-coder-v2:lite"]
+# Modele prefere choisi depuis le dashboard ("Choisir ce modele" -> JARVIS_OLLAMA_MODEL).
+# Place en tete de priorite : _decouvrir_modeles_ollama() le selectionnera en premier s'il est installe.
+_MODELE_PREFERE = os.environ.get("JARVIS_OLLAMA_MODEL", "").strip()
+if _MODELE_PREFERE:
+    OLLAMA_MODELS = [_MODELE_PREFERE] + [m for m in OLLAMA_MODELS if m != _MODELE_PREFERE]
 FORCE_OLLAMA    = os.getenv("FORCE_OLLAMA", "1" if not GEMINI_DISPONIBLE else "0") == "1"
 
 if FORCE_OLLAMA:

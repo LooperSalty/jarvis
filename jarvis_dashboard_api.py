@@ -115,6 +115,9 @@ CLES_GEREES: tuple[str, ...] = (
     "OBSIDIAN_VAULT",
     "JARVIS_USER_NAME",
     "FORCE_OLLAMA",
+    # Modele Ollama local prefere (defini via "Choisir ce modele" du dashboard).
+    # main2.py le met en tete de la priorite OLLAMA_MODELS au demarrage.
+    "JARVIS_OLLAMA_MODEL",
     # Flags voix avancee (opt-in, non secrets) — voir requirements-voice.txt
     "JARVIS_STT_LOCAL",
     "JARVIS_WAKE_LOCAL",
@@ -1005,6 +1008,80 @@ async def _h_model_reco(data: dict) -> dict:
     }
 
 
+def _lancer_ollama_pull(model: str) -> tuple[bool, str]:
+    """Lance 'ollama pull <model>' en arriere-plan (non bloquant).
+
+    Returns (demarre, message). False si Ollama introuvable sur le PC.
+    """
+    import shutil
+    import subprocess
+    import sys as _sys
+
+    exe = shutil.which("ollama")
+    if not exe:
+        return False, "Ollama n'est pas installe sur ce PC (voir ollama.com)."
+    try:
+        creationflags = 0
+        if _sys.platform == "win32":
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.Popen(
+            [exe, "pull", model],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=creationflags,
+        )
+        return True, f"Telechargement de {model} lance en arriere-plan."
+    except Exception as e:
+        return False, f"Echec du lancement de l'installation : {e}"
+
+
+def _modele_deja_installe(model: str, installes: list[str]) -> bool:
+    """Vrai si le modele (ou sa base avant ':') figure dans les tags installes."""
+    base = model.split(":")[0]
+    return any(t == model or t.split(":")[0] == base for t in (installes or []))
+
+
+async def _h_model_select(data: dict) -> dict:
+    """Definit un modele Ollama comme modele local prefere de Jarvis.
+
+    Persiste JARVIS_OLLAMA_MODEL dans le .env (main2 le met en priorite n°1 au
+    demarrage) et lance l'installation 'ollama pull' s'il n'est pas deja present.
+    """
+    model = str(data.get("model", "")).strip()
+    if not model:
+        return {"action": "dash_model_select", "ok": False,
+                "error": "Modele manquant.", "message": "Aucun modele specifie."}
+
+    # 1) Persiste le modele prefere (liste blanche CLES_GEREES -> restart_required).
+    persiste = set_env_values({"JARVIS_OLLAMA_MODEL": model})
+
+    # 2) Installe-le s'il manque.
+    installes = []
+    if model_advisor_service is not None:
+        installes = await _en_executor(model_advisor_service.modeles_installes)
+    deja = _modele_deja_installe(model, installes)
+
+    install_lance, install_msg = False, ""
+    if not deja:
+        install_lance, install_msg = await _en_executor(_lancer_ollama_pull, model)
+
+    if deja:
+        message = f"{model} defini comme modele local. Redemarre Jarvis pour l'activer."
+    elif install_lance:
+        message = f"{install_msg} Il sera utilise apres installation + redemarrage."
+    else:
+        message = f"{model} enregistre, mais {install_msg}"
+
+    return {
+        "action": "dash_model_select",
+        "ok": bool(persiste),
+        "model": model,
+        "installe": deja,
+        "install_lance": install_lance,
+        "message": message,
+        "restart_required": _RESTART_REQUIRED,
+    }
+
+
 # ==========================================
 # HANDLERS — MCP
 # ==========================================
@@ -1329,6 +1406,7 @@ _HANDLERS = {
     "dash_memory_search": _h_memory_search,
     "dash_get_specs": _h_get_specs,
     "dash_model_reco": _h_model_reco,
+    "dash_model_select": _h_model_select,
     "dash_mcp_list": _h_mcp_list,
     "dash_mcp_add": _h_mcp_add,
     "dash_mcp_remove": _h_mcp_remove,
