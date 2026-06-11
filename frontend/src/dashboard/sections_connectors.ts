@@ -48,6 +48,28 @@ function parseServers(raw: unknown): McpServer[] {
   });
 }
 
+/** Entree du catalogue MCP preconfigure (renvoyee par dash_mcp_catalog). */
+interface McpCatalogEntry {
+  nom: string;
+  description: string;
+  command: string;
+  args: string[];
+  besoin: string;
+}
+
+function parseCatalog(raw: unknown): McpCatalogEntry[] {
+  return asArray(raw).map((c) => {
+    const r = asRecord(c);
+    return {
+      nom: asString(r.nom),
+      description: asString(r.description),
+      command: asString(r.command),
+      args: asArray(r.args).map((a) => asString(a)),
+      besoin: asString(r.besoin),
+    };
+  });
+}
+
 /** Construit une ligne serveur MCP avec son accordeon de tools. */
 function buildServerRow(
   server: McpServer,
@@ -141,6 +163,63 @@ function renderToolsInto(accordion: HTMLElement, msg: ws.WsMessage): void {
   }
 }
 
+/** Construit une ligne du catalogue MCP avec son bouton d'ajout en 1 clic. */
+function buildCatalogRow(entry: McpCatalogEntry): HTMLElement {
+  const row = el("div", "mcp-catalog-row");
+
+  const main = el("div", "mcp-catalog-main");
+  const title = el("div", "mcp-catalog-title");
+  title.appendChild(el("strong", "", entry.nom));
+  main.appendChild(title);
+  main.appendChild(el("span", "mcp-catalog-desc", entry.description));
+  main.appendChild(
+    el("code", "mcp-catalog-cmd", [entry.command, ...entry.args].join(" "))
+  );
+  if (entry.besoin) {
+    main.appendChild(el("span", "mcp-catalog-need hint", entry.besoin));
+  }
+  row.appendChild(main);
+
+  const controls = el("div", "mcp-catalog-controls");
+  // Si un argument doit etre edite (chemin, dossier...), on propose un champ
+  // pre-rempli avec le dernier argument du modele ; sinon ajout direct.
+  let argInput: HTMLInputElement | null = null;
+  if (entry.besoin && entry.args.length > 0) {
+    argInput = textInput("Argument a editer", entry.args[entry.args.length - 1]);
+    controls.appendChild(labeledField("Argument", argInput));
+  }
+
+  const addBtn = button("Ajouter", "primary");
+  addBtn.addEventListener("click", () => {
+    // Recompose les args en remplacant le dernier par la valeur editee.
+    const args = [...entry.args];
+    if (argInput) {
+      const edite = argInput.value.trim();
+      if (!edite) {
+        showToast("L'argument a editer ne peut pas etre vide.", false);
+        return;
+      }
+      args[args.length - 1] = edite;
+    }
+    if (
+      ws.send({
+        type: "dash_mcp_add",
+        name: entry.nom,
+        command: entry.command,
+        args,
+      })
+    ) {
+      showToast(`Ajout du serveur ${entry.nom}...`);
+    } else {
+      showToast("Backend deconnecte.", false);
+    }
+  });
+  controls.appendChild(addBtn);
+  row.appendChild(controls);
+
+  return row;
+}
+
 function mount(root: HTMLElement): Cleanup {
   // ── Bloc MCP ──
   const pMcp = panel(
@@ -161,6 +240,33 @@ function mount(root: HTMLElement): Cleanup {
   addForm.appendChild(addBtn);
   pMcp.body.appendChild(addForm);
   root.appendChild(pMcp.root);
+
+  // ── Bloc Catalogue MCP (ajout en 1 clic) ──
+  const pCatalog = panel(
+    "Catalogue MCP",
+    "Serveurs MCP preconfigures, prets a ajouter en un clic"
+  );
+  const catalogBox = el("div", "mcp-catalog-list");
+  pCatalog.body.appendChild(catalogBox);
+  const browseBtn = button("Parcourir le catalogue", "ghost");
+  browseBtn.addEventListener("click", () => {
+    clearChildren(catalogBox);
+    catalogBox.appendChild(el("div", "empty", "Chargement..."));
+    if (!ws.send({ type: "dash_mcp_catalog" })) {
+      showToast("Backend deconnecte.", false);
+      clearChildren(catalogBox);
+    }
+  });
+  pCatalog.body.appendChild(browseBtn);
+  pCatalog.body.appendChild(
+    el(
+      "p",
+      "hint",
+      "Les cles des connecteurs Spotify, Telegram et Discord se renseignent " +
+        "dans la section Vue d'ensemble."
+    )
+  );
+  root.appendChild(pCatalog.root);
 
   // ── Bloc Skills ──
   const pSkills = panel(
@@ -200,6 +306,17 @@ function mount(root: HTMLElement): Cleanup {
           ws.send({ type: "dash_mcp_tools", name: server.name });
         }
       }
+    }
+  }
+
+  function renderCatalog(entries: McpCatalogEntry[]): void {
+    clearChildren(catalogBox);
+    if (entries.length === 0) {
+      catalogBox.appendChild(el("div", "empty", "Catalogue vide."));
+      return;
+    }
+    for (const entry of entries) {
+      catalogBox.appendChild(buildCatalogRow(entry));
     }
   }
 
@@ -269,6 +386,9 @@ function mount(root: HTMLElement): Cleanup {
     else showToast(asString(msg.error, "Echec de l'operation MCP."), false);
     ws.send({ type: "dash_mcp_list" });
   });
+  const offCatalog = ws.on("dash_mcp_catalog", (msg) => {
+    renderCatalog(parseCatalog(msg.catalogue));
+  });
   const offTools = ws.on("dash_mcp_tools", (msg) => {
     const name = asString(msg.name);
     const row = serversBox.querySelector(
@@ -291,6 +411,7 @@ function mount(root: HTMLElement): Cleanup {
   return () => {
     offList();
     offSaved();
+    offCatalog();
     offTools();
     offSkills();
     offStatus();
