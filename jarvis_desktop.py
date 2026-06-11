@@ -57,8 +57,13 @@ HIDE_DELAY_MS = 3000
 FULL_W = 980
 FULL_H = 720
 
+# Configurateur (dashboard) — fenetre native dediee, plus large (formulaires).
+DASH_W = 1180
+DASH_H = 800
+
 JARVIS_URL_MINI = "http://127.0.0.1:5173/?mini=1"
 JARVIS_URL_FULL = "http://127.0.0.1:5173/"
+JARVIS_URL_DASHBOARD = "http://127.0.0.1:5173/dashboard.html"
 WS_URL = "ws://127.0.0.1:8765"
 
 FROZEN = getattr(sys, "frozen", False)
@@ -151,6 +156,7 @@ class WindowBridge(QObject):
     # show_orb passe maintenant l'etat ('thinking'|'speaking') pour adapter la couleur
     show_orb_signal = pyqtSignal(str)
     show_full_signal = pyqtSignal()
+    show_dashboard_signal = pyqtSignal()
     schedule_hide_signal = pyqtSignal()
     quit_signal = pyqtSignal()
 
@@ -401,6 +407,32 @@ class FullWindow(QWidget):
         self.raise_()
 
 
+class DashboardWindow(QWidget):
+    """Fenetre native du configurateur (dashboard de configuration).
+    Charge la page Vite dashboard.html dans un QWebEngineView — vraie fenetre
+    Windows, pas un onglet de navigateur."""
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Jarvis — Configuration")
+        self.resize(DASH_W, DASH_H)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.view = QWebEngineView(self)
+        self.view.setUrl(QUrl(JARVIS_URL_DASHBOARD))
+        layout.addWidget(self.view)
+
+    def show_centered(self):
+        wx, wy, ww, wh = _get_work_area()
+        x = wx + (ww - DASH_W) // 2
+        y = wy + (wh - DASH_H) // 2
+        self.move(x, y)
+        self.show()
+        self.activateWindow()
+        self.raise_()
+
+
 class WindowController(QObject):
     """Coordonne OrbWindow + FullWindow selon les signaux du bridge."""
 
@@ -414,9 +446,11 @@ class WindowController(QObject):
 
         self.orb_window = OrbWindow()
         self.full_window: FullWindow | None = None  # cree a la demande
+        self.dashboard_window: DashboardWindow | None = None  # cree a la demande
 
         bridge.show_orb_signal.connect(self._show_orb)
         bridge.show_full_signal.connect(self._show_full)
+        bridge.show_dashboard_signal.connect(self._show_dashboard)
         bridge.schedule_hide_signal.connect(self._schedule_hide)
         bridge.quit_signal.connect(self._quit)
 
@@ -437,6 +471,16 @@ class WindowController(QObject):
         self._mode = "full"
         _log("show_full (mode=full)")
 
+    def _show_dashboard(self):
+        # Configurateur dans une vraie fenetre native (pas le navigateur).
+        self._hide_timer.stop()
+        self.orb_window.hide()
+        if self.dashboard_window is None:
+            self.dashboard_window = DashboardWindow()
+        self.dashboard_window.show_centered()
+        self._mode = "full"  # comme full : pas d'auto-hide de l'orbe
+        _log("show_dashboard (fenetre native)")
+
     def _schedule_hide(self):
         if self._mode == "full":
             return
@@ -455,6 +499,11 @@ class WindowController(QObject):
         if self.full_window:
             try:
                 self.full_window.close()
+            except Exception:
+                pass
+        if self.dashboard_window:
+            try:
+                self.dashboard_window.close()
             except Exception:
                 pass
         QApplication.quit()
@@ -546,17 +595,8 @@ def _setup_tray(app: QApplication, bridge: WindowBridge) -> QSystemTrayIcon:
     quit_act = QAction("Quitter", menu)
 
     open_act.triggered.connect(bridge.show_full_signal.emit)
-
-    def _open_dashboard():
-        # Dashboard de configuration : page Vite separee, navigateur systeme
-        # (formulaires longs = plus confortable que la fenetre orbe).
-        try:
-            import webbrowser
-            webbrowser.open("http://127.0.0.1:5173/dashboard.html")
-        except Exception as e:
-            _log(f"Echec ouverture dashboard : {e}")
-
-    config_act.triggered.connect(_open_dashboard)
+    # Configurateur : fenetre native dediee (plus de navigateur systeme).
+    config_act.triggered.connect(bridge.show_dashboard_signal.emit)
     hide_act.triggered.connect(bridge.schedule_hide_signal.emit)
     quit_act.triggered.connect(bridge.quit_signal.emit)
 
