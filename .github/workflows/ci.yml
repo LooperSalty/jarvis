@@ -47,38 +47,37 @@ jobs:
         shell: bash
         run: |
           python - <<'PY'
-          import importlib, sys
+          import importlib, os, sys
           # Modules importables sans pygame / google.genai / pyaudio.
-          # On ne fait PAS echouer si un module n'existe pas encore sur la branche
-          # (la CI doit passer aussi bien sur main que sur les branches de feature).
+          # On teste l'EXISTENCE du fichier d'abord : absent sur la branche => skip
+          # (la CI passe aussi bien sur main que sur les branches de feature) ;
+          # present mais plante a l'import => echec reel (bug a corriger).
           cibles = [
-              "jarvis_profile",
-              "jarvis_dashboard_api",
-              "jarvis_actions.mcp_client",
-              "jarvis_actions.skills_loader",
-              "jarvis_actions.display_actions",
-              "jarvis_actions.model_advisor_service",
+              ("jarvis_profile", "jarvis_profile.py"),
+              ("jarvis_dashboard_api", "jarvis_dashboard_api.py"),
+              ("jarvis_actions.mcp_client", "jarvis_actions/mcp_client.py"),
+              ("jarvis_actions.skills_loader", "jarvis_actions/skills_loader.py"),
+              ("jarvis_actions.display_actions", "jarvis_actions/display_actions.py"),
+              ("jarvis_actions.model_advisor_service", "jarvis_actions/model_advisor_service.py"),
           ]
           erreurs = []
-          for nom in cibles:
+          for nom, chemin in cibles:
+              if not os.path.exists(chemin):
+                  print(f"  skip {nom} (absent sur cette branche)")
+                  continue
               try:
                   importlib.import_module(nom)
                   print(f"  OK   {nom}")
-              except ModuleNotFoundError as e:
-                  # Module absent sur cette branche OU dep optionnelle manquante : on tolere.
-                  print(f"  skip {nom} ({e})")
               except Exception as e:
                   erreurs.append((nom, repr(e)))
                   print(f"  FAIL {nom} : {e!r}")
           if erreurs:
               sys.exit(f"Import en echec : {erreurs}")
           # Si le loader de skills est present, on valide qu'ils chargent.
-          try:
+          if os.path.exists("jarvis_actions/skills_loader.py"):
               from jarvis_actions import skills_loader
               skills_loader.charger_skills()
               print("  skills :", [s["nom"] for s in skills_loader.lister_skills()])
-          except ModuleNotFoundError:
-              pass
           PY
 
       - name: "Lint critique (bugs reels - syntaxe, noms indefinis)"
