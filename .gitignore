@@ -105,3 +105,7 @@ apprendre/_tinyshakespeare.txt
 
 # Artefacts Playwright MCP
 .playwright-mcp/
+
+# Certificat de signature auto-signe (artefact local)
+jarvis_codesign.cer
+*.pfx
