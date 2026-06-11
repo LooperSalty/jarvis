@@ -127,12 +127,19 @@ async def resumer_si_besoin(
     resume = resume.strip()
 
     try:
+        # On insere une paire user/model pour preserver l'alternance des roles
+        # attendue par Gemini (premier tour = user), quel que soit le role du
+        # premier message conserve dans `recents`.
         contenu_resume = types.Content(
             role="user",
-            parts=[types.Part(text="[Résumé des échanges précédents]\n" + resume)],
+            parts=[types.Part(text="[Contexte] Resume de nos echanges precedents :\n" + resume)],
+        )
+        accuse = types.Content(
+            role="model",
+            parts=[types.Part(text="Compris, je garde ce contexte en tete.")],
         )
     except Exception as e:  # noqa: BLE001 - construction Content impossible
         print(f"[HISTORY_SUMMARY] Construction Content impossible : {e}")
         return None
 
-    return [contenu_resume] + list(recents)
+    return [contenu_resume, accuse] + list(recents)

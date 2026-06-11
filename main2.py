@@ -406,15 +406,35 @@ def ajouter_memoire(cle, valeur):
             OBSIDIAN.save_memory(cle, valeur, timestamp)
         except Exception as e:
             print(f"[OBSIDIAN] Echec ecriture memoire : {e}")
-    # Indexation vectorielle (RAG). memory_rag est defini plus bas dans le module
-    # mais accessible au runtime ; globals().get evite un NameError si l'ordre change.
+    # Indexation vectorielle (RAG) DEPORTEE dans un thread : indexer() fait un
+    # appel reseau Ollama (jusqu'a 30s) ; le lancer inline gelerait l'event loop
+    # car ajouter_memoire est souvent appele depuis une coroutine.
+    _rag_en_arriere_plan("indexer", cle, valeur, timestamp)
+
+def _rag_en_arriere_plan(operation: str, cle: str, valeur: str = "", timestamp: str = "") -> None:
+    """Lance une operation RAG (indexer/supprimer) dans un thread daemon.
+
+    indexer()/supprimer() font du reseau (embeddings Ollama) : on ne les execute
+    JAMAIS sur l'event loop. Fire-and-forget, jamais d'exception propagee."""
     _rag = globals().get("memory_rag")
-    if _rag is not None:
+    if _rag is None:
+        return
+
+    def _travail():
         try:
-            if _rag.disponible():
+            if not _rag.disponible():
+                return
+            if operation == "indexer":
                 _rag.indexer(cle, valeur, timestamp)
+            elif operation == "supprimer":
+                _rag.supprimer(cle)
         except Exception as e:
-            print(f"[RAG] Echec indexation '{cle}' : {e}")
+            print(f"[RAG] Echec {operation} '{cle}' : {e}")
+
+    try:
+        threading.Thread(target=_travail, daemon=True).start()
+    except Exception as e:
+        print(f"[RAG] Echec lancement thread {operation} : {e}")
 
 def supprimer_memoire(cle):
     memoire = charger_memoire()
@@ -426,14 +446,8 @@ def supprimer_memoire(cle):
                 OBSIDIAN.delete_memory(cle)
             except Exception as e:
                 print(f"[OBSIDIAN] Echec suppression : {e}")
-        # Retrait de l'index vectoriel (RAG).
-        _rag = globals().get("memory_rag")
-        if _rag is not None:
-            try:
-                if _rag.disponible():
-                    _rag.supprimer(cle)
-            except Exception as e:
-                print(f"[RAG] Echec suppression index '{cle}' : {e}")
+        # Retrait de l'index vectoriel (RAG) dans un thread (appel reseau).
+        _rag_en_arriere_plan("supprimer", cle)
         return True
     return False
 
@@ -658,44 +672,6 @@ def construire_contexte_memoire(query: str | None = None):
     return "\n".join(lignes)
 
 
-def _dash_chercher_memoire(query: str):
-    """Recherche dans la memoire pour le dashboard.
-
-    Retourne (results, rag_actif) ou results = [{cle, valeur, score}] trie desc.
-    Si le RAG est disponible -> recherche semantique. Sinon -> repli par sous-chaine
-    (score binaire 1.0) sur la memoire complete. Jamais d'exception propagee."""
-    _rag = globals().get("memory_rag")
-    if query and _rag is not None:
-        try:
-            if _rag.disponible():
-                resultats = _rag.rechercher(query, k=8)
-                # Normalise : on ne garde que les champs attendus par le protocole.
-                results = [
-                    {
-                        "cle": r.get("cle", ""),
-                        "valeur": r.get("valeur", ""),
-                        "score": float(r.get("score", 0.0)),
-                    }
-                    for r in (resultats or [])
-                ]
-                return results, True
-        except Exception as e:
-            print(f"[RAG] Echec recherche dashboard : {e}")
-
-    # Repli sans RAG : filtre par sous-chaine (insensible a la casse).
-    try:
-        memoire = charger_memoire()
-        q = query.lower()
-        results = []
-        for cle, data in memoire.items():
-            valeur = data.get("valeur", "")
-            if not q or q in cle.lower() or q in str(valeur).lower():
-                results.append({"cle": cle, "valeur": valeur, "score": 1.0})
-        return results, False
-    except Exception as e:
-        print(f"[RAG] Echec repli recherche memoire : {e}")
-        return [], False
-
 # ==========================================
 # WEBSOCKET
 # ==========================================
@@ -761,20 +737,9 @@ async def ws_handler(websocket):
                             "error": "Configuration accessible uniquement depuis le PC local.",
                         }))
                         continue
-                    # Recherche semantique dans la memoire (RAG) pilotee depuis le
-                    # dashboard. Gere ici (loopback uniquement) pour rester deterministe
-                    # quel que soit le routeur dashboard. Repli "rag:false" si le RAG est
-                    # indisponible -> on retourne la memoire complete filtree par sous-chaine.
-                    if data.get("type") == "dash_memory_search":
-                        query = (data.get("query") or "").strip()
-                        results, rag_actif = _dash_chercher_memoire(query)
-                        await websocket.send(json.dumps({
-                            "action": "dash_memory_results",
-                            "query": query,
-                            "results": results,
-                            "rag": rag_actif,
-                        }))
-                        continue
+                    # dash_memory_search est route par jarvis_dashboard_api._h_memory_search
+                    # qui deporte l'appel RAG (reseau) dans un executor : on NE le traite
+                    # PAS inline ici (ce serait bloquant pour l'event loop).
                     if jarvis_dashboard_api and await jarvis_dashboard_api.traiter_message_dashboard(data, websocket):
                         continue
 
@@ -2109,7 +2074,9 @@ async def demander_ia(texte):
             # On ne modifie pas l'historique global avant d'être sûr que ça marche
             temp_hist = historique + [types.Content(role="user", parts=[types.Part(text=texte)])]
             # texte courant transmis pour la recherche RAG ciblee dans le prompt.
-            prompt_actuel = construire_system_prompt(texte)
+            # to_thread : construire_system_prompt peut faire un embedding Ollama
+            # (reseau, jusqu'a 30s) -> jamais sur l'event loop.
+            prompt_actuel = await asyncio.to_thread(construire_system_prompt, texte)
             
             last_err = None
             for model_name in MODELS_LIST:
@@ -2275,7 +2242,7 @@ async def demander_ia_vision(texte, img_b64):
             mime_type="image/jpeg"
         )
         
-        prompt_actuel = construire_system_prompt(texte)
+        prompt_actuel = await asyncio.to_thread(construire_system_prompt, texte)
         prompt_actuel += f"\n\nIMPORTANT : Tu viens de recevoir une capture d'écran de {USER_NAME}. Analyse-la attentivement et réponds à sa question en te basant sur ce que tu vois."
         
         # On envoie l'image et le texte avec retry en cas de 503
@@ -3072,10 +3039,17 @@ async def _resumer_historique_si_besoin():
     if not _llm_ia_disponible():
         return
     try:
-        nouvelle = await history_summary.resumer_si_besoin(historique, _llm_simple)
+        # Snapshot : on resume une COPIE figee. Des messages peuvent etre ajoutes
+        # a `historique` pendant l'await (autres tours de conversation) ; il ne faut
+        # pas les perdre en ecrasant tout.
+        snapshot = list(historique)
+        n0 = len(snapshot)
+        nouvelle = await history_summary.resumer_si_besoin(snapshot, _llm_simple)
         if nouvelle is not None:
             ancien = len(historique)
-            historique[:] = nouvelle
+            # Messages ajoutes pendant l'await (apres l'index n0) : on les preserve.
+            ajouts = historique[n0:]
+            historique[:] = list(nouvelle) + ajouts
             print(f"[RESUME] Historique compacte : {ancien} -> {len(historique)} messages.")
             try:
                 sauvegarder_historique(historique)

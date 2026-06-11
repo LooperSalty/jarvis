@@ -802,6 +802,24 @@ async def _h_memory_delete(data: dict) -> dict:
     return {"action": "dash_memory_saved", "ok": bool(fn(cle))}
 
 
+def _recherche_sous_chaine(query: str) -> list[dict]:
+    """Repli de recherche memoire sans RAG : filtre par sous-chaine (casse ignoree).
+
+    Retourne [{cle, valeur, score}] (score binaire 1.0). Jamais d'exception."""
+    try:
+        memoire = _appel_ctx("charger_memoire", defaut={}) or {}
+        q = query.lower()
+        results = []
+        for cle, entree in memoire.items():
+            valeur = entree.get("valeur", "") if isinstance(entree, dict) else str(entree)
+            if q in str(cle).lower() or q in str(valeur).lower():
+                results.append({"cle": str(cle), "valeur": str(valeur), "score": 1.0})
+        return results
+    except Exception as e:
+        print(f"[DASHBOARD] Repli recherche memoire echoue : {e}")
+        return []
+
+
 async def _h_memory_search(data: dict) -> dict:
     """Recherche semantique (RAG) dans la memoire via embeddings Ollama.
 
@@ -811,17 +829,23 @@ async def _h_memory_search(data: dict) -> dict:
     affiche une note expliquant la degradation).
     """
     query = str(data.get("query", "")).strip()
-    if memory_rag is None:
-        return {"action": "dash_memory_results", "query": query, "results": [], "rag": False}
     if not query:
         return {"action": "dash_memory_results", "query": query, "results": [], "rag": False}
-    try:
-        rag_actif = bool(await _en_executor(memory_rag.disponible))
-    except Exception as e:
-        print(f"[DASHBOARD] memory_rag.disponible en echec : {e}")
-        rag_actif = False
+    rag_actif = False
+    if memory_rag is not None:
+        try:
+            rag_actif = bool(await _en_executor(memory_rag.disponible))
+        except Exception as e:
+            print(f"[DASHBOARD] memory_rag.disponible en echec : {e}")
+            rag_actif = False
     if not rag_actif:
-        return {"action": "dash_memory_results", "query": query, "results": [], "rag": False}
+        # Repli sans RAG : recherche par sous-chaine sur la memoire complete.
+        return {
+            "action": "dash_memory_results",
+            "query": query,
+            "results": _recherche_sous_chaine(query),
+            "rag": False,
+        }
     try:
         bruts = await _en_executor(memory_rag.rechercher, query, 8)
     except Exception as e:

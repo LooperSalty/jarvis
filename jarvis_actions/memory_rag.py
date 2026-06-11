@@ -90,6 +90,12 @@ def _connexion() -> sqlite3.Connection:
     """Ouvre la base et garantit le schema. Connexion neuve par appel
     (sqlite3 n'est pas thread-safe en partage de connexion)."""
     conn = sqlite3.connect(str(DB_PATH), timeout=10.0)
+    # WAL : lecteurs et ecriture concurrente ne se bloquent pas (la reindexation
+    # fait un DELETE global + N inserts ; sans WAL elle peut faire timeout les lecteurs).
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+    except Exception:
+        pass
     conn.execute(
         "CREATE TABLE IF NOT EXISTS memoire_vec ("
         "  cle TEXT PRIMARY KEY,"

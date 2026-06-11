@@ -136,6 +136,12 @@ async def extraire_faits(
     jarvis_text = (jarvis_text or "").strip()
     if not user_text and not jarvis_text:
         return []
+    # Borne la longueur interpolee pour limiter l'injection de prompt et le cout.
+    _MAX = 1500
+    if len(user_text) > _MAX:
+        user_text = user_text[:_MAX] + "..."
+    if len(jarvis_text) > _MAX:
+        jarvis_text = jarvis_text[:_MAX] + "..."
 
     prompt = _PROMPT_TEMPLATE.format(
         user_text=user_text or "(rien)",
