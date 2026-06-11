@@ -1008,6 +1008,15 @@ async def _h_model_reco(data: dict) -> dict:
     }
 
 
+# Nom de modele Ollama valide : alphanum + . _ - / et tag optionnel ":<tag>".
+# Empeche l'argv flag smuggling (ex. "--config") et toute injection d'argument.
+_MODELE_OLLAMA_RE = re.compile(r"^[A-Za-z0-9._/-]+(?::[A-Za-z0-9._-]+)?$")
+
+
+def _nom_modele_valide(model: str) -> bool:
+    return bool(model) and not model.startswith("-") and bool(_MODELE_OLLAMA_RE.match(model))
+
+
 def _lancer_ollama_pull(model: str) -> tuple[bool, str]:
     """Lance 'ollama pull <model>' en arriere-plan (non bloquant).
 
@@ -1024,8 +1033,9 @@ def _lancer_ollama_pull(model: str) -> tuple[bool, str]:
         creationflags = 0
         if _sys.platform == "win32":
             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        # "--" termine le parsing d'options : model ne peut pas devenir un flag.
         subprocess.Popen(
-            [exe, "pull", model],
+            [exe, "pull", "--", model],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             creationflags=creationflags,
         )
@@ -1050,6 +1060,10 @@ async def _h_model_select(data: dict) -> dict:
     if not model:
         return {"action": "dash_model_select", "ok": False,
                 "error": "Modele manquant.", "message": "Aucun modele specifie."}
+    if not _nom_modele_valide(model):
+        return {"action": "dash_model_select", "ok": False,
+                "error": "Nom de modele invalide.",
+                "message": f"Nom de modele invalide : {model[:40]}"}
 
     # 1) Persiste le modele prefere (liste blanche CLES_GEREES -> restart_required).
     persiste = set_env_values({"JARVIS_OLLAMA_MODEL": model})
