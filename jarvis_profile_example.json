@@ -1,0 +1,31 @@
+{
+  "identite": {
+    "prenom": "Jean",
+    "surnom_prefere": "Monsieur",
+    "date_naissance": "1990-01-15",
+    "metier": "Developpeur"
+  },
+  "famille": [
+    { "nom": "Marie", "relation": "sa femme", "notes": "aime le the" },
+    { "nom": "Paul", "relation": "son frere", "notes": "habite a Lyon" }
+  ],
+  "adresse": {
+    "rue": "1 rue de l'Exemple",
+    "ville": "Paris",
+    "code_postal": "75001",
+    "pays": "France"
+  },
+  "habitudes": [
+    "se leve a 7h en semaine",
+    "fait du sport le mardi soir"
+  ],
+  "preferences": [
+    "reponses courtes et directes",
+    "prefere le cafe au the"
+  ],
+  "routines": [
+    { "quand": "le matin", "quoi": "resume meteo et agenda" },
+    { "quand": "le soir", "quoi": "eteindre les lumieres du salon" }
+  ],
+  "notes_libres": "Exemple de note libre : projet en cours, rappels divers."
+}

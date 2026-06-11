@@ -541,14 +541,27 @@ def _setup_tray(app: QApplication, bridge: WindowBridge) -> QSystemTrayIcon:
 
     menu = QMenu()
     open_act = QAction("Ouvrir l'interface", menu)
+    config_act = QAction("Configuration", menu)
     hide_act = QAction("Cacher", menu)
     quit_act = QAction("Quitter", menu)
 
     open_act.triggered.connect(bridge.show_full_signal.emit)
+
+    def _open_dashboard():
+        # Dashboard de configuration : page Vite separee, navigateur systeme
+        # (formulaires longs = plus confortable que la fenetre orbe).
+        try:
+            import webbrowser
+            webbrowser.open("http://127.0.0.1:5173/dashboard.html")
+        except Exception as e:
+            _log(f"Echec ouverture dashboard : {e}")
+
+    config_act.triggered.connect(_open_dashboard)
     hide_act.triggered.connect(bridge.schedule_hide_signal.emit)
     quit_act.triggered.connect(bridge.quit_signal.emit)
 
     menu.addAction(open_act)
+    menu.addAction(config_act)
     menu.addAction(hide_act)
     menu.addSeparator()
     menu.addAction(quit_act)

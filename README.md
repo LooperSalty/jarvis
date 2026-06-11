@@ -20,6 +20,10 @@ Assistant vocal qui tourne en arriere-plan sur Windows, avec une orbe Three.js c
 - **Input texte** : champ de saisie en bas de l'orbe pour taper en silence
 - **Mute persistant** : un clic = mute, jusqu'au prochain clic
 - **Mobile** : interface HTML separee servie sur `:8080`, utilise Web Speech API native du tel
+- **Dashboard de configuration** : vraie app de config sur `http://localhost:5173/dashboard.html` (lien ⚙ sur l'orbe, ou menu tray "Configuration") — profil utilisateur (famille, adresse, habitudes injectes dans le cerveau), cles API (presentes/absentes, jamais affichees), memoire visualisee en graphe interactif, chat ecrit, connecteurs MCP, skills, et test "quel modele Ollama pour mon PC ?" (detection RAM/GPU + recommandations)
+- **Fenetres d'affichage** : *"Jarvis, montre-moi..."* — Jarvis ouvre une carte HTML sombre (Windows/macOS/Linux) pour montrer listes, comparatifs, images, liens
+- **Connecteurs MCP** : branche des serveurs Model Context Protocol (stdio) via le dashboard, leurs tools deviennent utilisables par l'agent
+- **Skills** : depose un `.py` dans `jarvis_skills/` (template dans le README du dossier), Jarvis le charge tout seul — meme a cote du `.exe`
 
 ## Demarrage
 

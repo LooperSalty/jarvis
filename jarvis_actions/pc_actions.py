@@ -237,6 +237,10 @@ def _ouvrir_app(nom: str) -> tuple[str | None, bool]:
             pass
 
     # 4. Si ca ressemble a une URL ou un fichier
+    # Garde anti-injection d'argument : open/xdg-open interpreteraient un
+    # argument commencant par "-" comme une option.
+    if nom_clean.startswith("-"):
+        return None, False
     if "/" in nom_clean or "\\" in nom_clean or nom_clean.startswith("http"):
         try:
             if nom_clean.startswith("http"):
@@ -275,11 +279,9 @@ def _verrouiller() -> tuple[str, bool]:
             return f"Echec du verrouillage : {e}", False
     if IS_MAC:
         try:
-            subprocess.run(
-                ["/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession", "-suspend"],
-                check=False,
-                shell=False,
-            )
+            # CGSession n'existe plus sur les macOS recents (11+). Ctrl+Cmd+Q
+            # est le raccourci natif de verrouillage (permission Accessibilite requise).
+            pyautogui.hotkey("ctrl", "command", "q")
             return f"Session verrouillee, {USER_NAME}.", True
         except Exception as e:
             return f"Echec du verrouillage : {e}", False
