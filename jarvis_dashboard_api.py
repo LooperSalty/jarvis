@@ -64,6 +64,18 @@ except Exception as e:
     model_advisor_service = None
     print(f"[DASHBOARD] Module model_advisor_service indisponible : {e}")
 
+try:
+    import jarvis_security
+except Exception as e:
+    jarvis_security = None
+    print(f"[DASHBOARD] Module jarvis_security indisponible : {e}")
+
+try:
+    import jarvis_secrets
+except Exception as e:
+    jarvis_secrets = None
+    print(f"[DASHBOARD] Module jarvis_secrets indisponible : {e}")
+
 
 # ==========================================
 # CONSTANTES
@@ -86,6 +98,19 @@ CLES_GEREES: tuple[str, ...] = (
     "JARVIS_USER_NAME",
     "FORCE_OLLAMA",
 )
+
+# Cles SECRETES parmi CLES_GEREES : stockees dans keyring si dispo (jamais en
+# clair dans le .env). Les autres cles (URL, nom utilisateur, flags) restent
+# dans le .env car non sensibles et utiles a lire en clair pour le debug.
+CLES_SECRETES: frozenset[str] = frozenset({
+    "GEMINI_API_KEY",
+    "GROQ_API_KEY",
+    "XAI_API_KEY",
+    "SERPAPI_API_KEY",
+    "YOUTUBE_API_KEY",
+    "HA_TOKEN",
+    "MEROSS_PASSWORD",
+})
 
 _PLACEHOLDERS = ("VOTRE_API", "VOTRE_CLE_ICI")
 
@@ -119,7 +144,8 @@ def init_api(contexte: dict) -> None:
     """Initialise le routeur avec les callables injectes par main2.
 
     Cles attendues : charger_memoire, ajouter_memoire, supprimer_memoire,
-    user_name. Optionnel : obsidian_actif.
+    user_name. Optionnel : obsidian_actif, lan_ip (callable ou str, sert
+    a construire l'URL d'appairage mobile ; defaut "127.0.0.1").
     """
     if not isinstance(contexte, dict):
         print("[DASHBOARD] init_api : contexte invalide (dict attendu)")
@@ -150,6 +176,23 @@ def _nom_utilisateur() -> str:
     if isinstance(nom, str) and nom.strip():
         return nom.strip()
     return (os.environ.get("JARVIS_USER_NAME") or "").strip() or "Monsieur"
+
+
+def _lan_ip() -> str:
+    """IP LAN du PC pour l'URL d'appairage. Lit _CTX['lan_ip'] (callable ou valeur).
+
+    Defaut "127.0.0.1" si le contexte ne fournit rien (main2 l'injecte).
+    """
+    valeur = _CTX.get("lan_ip")
+    if callable(valeur):
+        try:
+            valeur = valeur()
+        except Exception as e:
+            print(f"[DASHBOARD] Lecture lan_ip echouee : {e}")
+            valeur = None
+    if isinstance(valeur, str) and valeur.strip():
+        return valeur.strip()
+    return "127.0.0.1"
 
 
 def _charger_profil_sur() -> dict:
@@ -203,13 +246,36 @@ def _parser_env() -> dict[str, str]:
     return valeurs
 
 
+def _valeur_brute_cle(cle: str, env_fichier: dict[str, str]) -> str:
+    """Valeur brute d'une cle : os.environ -> keyring -> .env. Jamais renvoyee au client.
+
+    L'ordre suit la priorite reelle de chargement (la session prime, puis le
+    coffre keyring, puis le fichier .env en dernier recours).
+    """
+    val = os.environ.get(cle, "")
+    if _valeur_presente(val):
+        return val
+    if jarvis_secrets is not None:
+        try:
+            depuis_keyring = jarvis_secrets.obtenir(cle)
+        except Exception as e:
+            print(f"[DASHBOARD] Lecture keyring '{cle}' echouee : {e}")
+            depuis_keyring = None
+        if isinstance(depuis_keyring, str) and _valeur_presente(depuis_keyring):
+            return depuis_keyring
+    return env_fichier.get(cle, "")
+
+
 def lire_cles_env() -> dict[str, bool]:
-    """Etat presente/absente de chaque cle geree. Ne renvoie JAMAIS les valeurs."""
+    """Etat presente/absente de chaque cle geree. Ne renvoie JAMAIS les valeurs.
+
+    Une cle est consideree presente si os.environ, keyring ou le .env la
+    contient avec une valeur non placeholder.
+    """
     valeurs = _parser_env()
     presentes: dict[str, bool] = {}
     for cle in CLES_GEREES:
-        val = valeurs.get(cle) or os.environ.get(cle, "")
-        presentes[cle] = _valeur_presente(val)
+        presentes[cle] = _valeur_presente(_valeur_brute_cle(cle, valeurs))
     return presentes
 
 
@@ -246,26 +312,88 @@ def _fusionner_lignes_env(lignes: list[str], updates: dict[str, str]) -> list[st
     return resultat
 
 
+def _keyring_disponible() -> bool:
+    """True si jarvis_secrets est importe ET expose un backend keyring fonctionnel."""
+    if jarvis_secrets is None:
+        return False
+    try:
+        return bool(jarvis_secrets.keyring_disponible())
+    except Exception as e:
+        print(f"[DASHBOARD] Test keyring echoue : {e}")
+        return False
+
+
+def _ecrire_secrets_keyring(secrets: dict[str, str]) -> str | None:
+    """Stocke les cles secretes dans keyring + os.environ. Retourne une erreur ou None.
+
+    Une valeur vide supprime l'entree keyring (l'utilisateur efface la cle).
+    """
+    for cle, valeur in secrets.items():
+        try:
+            if valeur:
+                ok = bool(jarvis_secrets.definir(cle, valeur))
+            else:
+                # Effacement : on tolere l'absence d'entree existante
+                jarvis_secrets.supprimer(cle)
+                ok = True
+        except Exception as e:
+            print(f"[DASHBOARD] Ecriture keyring '{cle}' echouee : {e}")
+            ok = False
+        if not ok:
+            return f"Ecriture dans le coffre securise impossible pour {cle}"
+    return None
+
+
 def _set_env_detail(updates: Any) -> tuple[bool, str | None]:
-    """Met a jour le .env (ecriture atomique) + os.environ. (ok, erreur)."""
+    """Met a jour les cles gerees. (ok, erreur).
+
+    Les cles SECRETES vont dans keyring si dispo (jamais en clair), sinon elles
+    retombent dans le .env. Les cles non sensibles restent toujours dans le
+    .env. Dans tous les cas os.environ est mis a jour pour la session courante.
+    Ecriture .env atomique (.tmp + os.replace).
+    """
     global _RESTART_REQUIRED
     propres, erreur = _valider_updates_env(updates)
     if propres is None:
         return False, erreur
-    try:
-        lignes = ENV_PATH.read_text(encoding="utf-8").splitlines() if ENV_PATH.exists() else []
-        nouvelles = _fusionner_lignes_env(lignes, propres)
-        tmp = ENV_PATH.with_name(ENV_PATH.name + ".tmp")
-        tmp.write_text("\n".join(nouvelles) + "\n", encoding="utf-8")
-        os.replace(tmp, ENV_PATH)
-    except Exception as e:
-        print(f"[DASHBOARD] Ecriture .env echouee : {e}")
-        return False, "Ecriture du fichier .env impossible"
+
+    keyring_ok = _keyring_disponible()
+    # Repartition : secrets vers keyring si dispo, le reste (et fallback) vers .env
+    vers_keyring: dict[str, str] = {}
+    vers_env: dict[str, str] = {}
+    for cle, valeur in propres.items():
+        if keyring_ok and cle in CLES_SECRETES:
+            vers_keyring[cle] = valeur
+        else:
+            vers_env[cle] = valeur
+
+    if vers_keyring:
+        erreur = _ecrire_secrets_keyring(vers_keyring)
+        if erreur is not None:
+            return False, erreur
+
+    if vers_env:
+        try:
+            lignes = ENV_PATH.read_text(encoding="utf-8").splitlines() if ENV_PATH.exists() else []
+            nouvelles = _fusionner_lignes_env(lignes, vers_env)
+            tmp = ENV_PATH.with_name(ENV_PATH.name + ".tmp")
+            tmp.write_text("\n".join(nouvelles) + "\n", encoding="utf-8")
+            os.replace(tmp, ENV_PATH)
+        except Exception as e:
+            print(f"[DASHBOARD] Ecriture .env echouee : {e}")
+            return False, "Ecriture du fichier .env impossible"
+
     # Mise a jour de la session courante (les clients IA restent inchanges -> restart)
     for cle, valeur in propres.items():
-        os.environ[cle] = valeur
+        if valeur:
+            os.environ[cle] = valeur
+        else:
+            os.environ.pop(cle, None)
     _RESTART_REQUIRED = True
-    print(f"[DASHBOARD] .env mis a jour ({len(propres)} cle(s)). Redemarrage requis.")
+    print(
+        f"[DASHBOARD] Cles mises a jour ({len(vers_keyring)} keyring, "
+        f"{len(vers_env)} .env). Redemarrage requis."
+    )
     return True, None
 
 
@@ -473,6 +601,7 @@ async def _h_overview(data: dict) -> dict:
         "user_name": _nom_utilisateur(),
         "integrations": _construire_integrations(env_keys, ollama_ok),
         "env_keys": env_keys,
+        "keyring": _keyring_disponible(),
         "restart_required": _RESTART_REQUIRED,
     }
 
@@ -499,6 +628,76 @@ async def _h_set_user_name(data: dict) -> dict:
     if erreur:
         reponse["error"] = erreur
     return reponse
+
+
+# ==========================================
+# HANDLERS — APPAIRAGE / SECRETS
+# ==========================================
+# Ces handlers ne sont appeles que depuis un client loopback (gate cote main2),
+# le token complet peut donc etre renvoye en clair : il sert a appairer le mobile.
+def _payload_appairage(token: str) -> dict:
+    """Construit le payload dash_pairing (token complet + URL d'appairage LAN)."""
+    ip = _lan_ip()
+    return {
+        "action": "dash_pairing",
+        "token": token,
+        "lan_ip": ip,
+        "lan_url": f"http://{ip}:8080/?token={token}",
+    }
+
+
+async def _h_get_pairing(data: dict) -> dict:
+    if jarvis_security is None:
+        return {"action": "dash_pairing", "error": "Module jarvis_security indisponible"}
+    try:
+        token = jarvis_security.get_ws_token()
+    except Exception as e:
+        print(f"[DASHBOARD] get_ws_token echoue : {e}")
+        return {"action": "dash_pairing", "error": "Generation du token impossible"}
+    return _payload_appairage(token)
+
+
+async def _h_regen_pairing(data: dict) -> dict:
+    if jarvis_security is None:
+        return {"action": "dash_pairing", "error": "Module jarvis_security indisponible"}
+    try:
+        token = jarvis_security.regenerer_token()
+    except Exception as e:
+        print(f"[DASHBOARD] regenerer_token echoue : {e}")
+        return {"action": "dash_pairing", "error": "Regeneration du token impossible"}
+    return _payload_appairage(token)
+
+
+async def _h_migrate_secrets(data: dict) -> dict:
+    """Deplace les cles secretes connues du .env vers keyring si dispo."""
+    if jarvis_secrets is None or not _keyring_disponible():
+        return {
+            "action": "dash_secrets_migrated",
+            "ok": False,
+            "keyring": False,
+            "resultats": {},
+            "error": "keyring indisponible",
+        }
+    try:
+        resultats = jarvis_secrets.migrer_env_vers_keyring(list(CLES_SECRETES))
+    except Exception as e:
+        print(f"[DASHBOARD] Migration secrets echouee : {e}")
+        return {
+            "action": "dash_secrets_migrated",
+            "ok": False,
+            "keyring": True,
+            "resultats": {},
+            "error": "Migration des secrets impossible",
+        }
+    resultats = resultats if isinstance(resultats, dict) else {}
+    # Booleens propres pour le frontend : {NOM: bool}
+    resultats = {str(nom): bool(ok) for nom, ok in resultats.items()}
+    return {
+        "action": "dash_secrets_migrated",
+        "ok": True,
+        "keyring": True,
+        "resultats": resultats,
+    }
 
 
 # ==========================================
@@ -765,6 +964,9 @@ _HANDLERS = {
     "dash_get_overview": _h_overview,
     "dash_set_env": _h_set_env,
     "dash_set_user_name": _h_set_user_name,
+    "dash_get_pairing": _h_get_pairing,
+    "dash_regen_pairing": _h_regen_pairing,
+    "dash_migrate_secrets": _h_migrate_secrets,
     "dash_get_profile": _h_get_profile,
     "dash_set_profile": _h_set_profile,
     "dash_get_memory": _h_get_memory,

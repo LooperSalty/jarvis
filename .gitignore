@@ -21,6 +21,10 @@ jarvis_profile.json
 # Config MCP perso (peut contenir des chemins/env locaux). Modele : jarvis_mcp_example.json
 jarvis_mcp.json
 
+# Token d'appairage WebSocket local (genere auto, non versionne).
+# Sert a authentifier les clients distants (mobile/LAN). Voir jarvis_security.py
+jarvis_ws_token.txt
+
 # Etat actif/inactif des skills (pref locale)
 jarvis_skills/skills_config.json
 

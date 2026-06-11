@@ -12,6 +12,9 @@ const WS_URL = `ws://${window.location.hostname}:8765`;
 const RECONNECT_DELAY_MS = 2500;
 const SPEECH_LANG = "fr-FR";
 
+// Cle de stockage local du token d'appairage (memoise entre sessions).
+const TOKEN_STORAGE_KEY = "jarvis_ws_token";
+
 // ── DOM Refs ────────────────────────────────────────────────────────────────
 const badgeEl      = document.getElementById("connection-badge");
 const badgeLabelEl = document.getElementById("connection-label");
@@ -23,12 +26,19 @@ const micIcon      = micBtn.querySelector(".mic-icon");
 const stopIcon     = micBtn.querySelector(".stop-icon");
 const micLabelEl   = document.getElementById("mic-label");
 const stopJarvisBtn= document.getElementById("stop-jarvis-btn");
+const pairingBanner= document.getElementById("pairing-banner");
 
 // ── État de l'application ───────────────────────────────────────────────────
 let currentState = "idle";
 let ws           = null;
 let isListening  = false;
 let reconnectTimer = null;
+
+// État d'appairage : true tant qu'on n'a pas eu un refus explicite du backend.
+// Les clients loopback (sur le PC) sont auto-authentifies, donc restent "appaires".
+let isPaired     = true;
+// Token charge depuis l'URL ou localStorage (peut etre vide pour un client loopback).
+let authToken    = "";
 
 // ── Gestion des états ───────────────────────────────────────────────────────
 const STATE_LABELS = {
@@ -68,6 +78,78 @@ function applyState(state) {
 
 applyState("idle");
 
+// ── Appairage / Authentification ────────────────────────────────────────────
+
+/**
+ * Lit le token depuis l'URL (?token=...) si present, le persiste dans
+ * localStorage puis nettoie l'URL pour ne pas laisser trainer le secret.
+ * Sinon, retombe sur la valeur deja stockee. Retourne "" si aucun token.
+ */
+function chargerToken() {
+  let token = "";
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const depuisUrl = (params.get("token") || "").trim();
+    if (depuisUrl) {
+      token = depuisUrl;
+      try {
+        localStorage.setItem(TOKEN_STORAGE_KEY, token);
+      } catch (e) {
+        console.warn("[AUTH] localStorage indisponible :", e);
+      }
+      // Nettoyer l'URL (retire ?token=...) sans recharger la page.
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("token");
+        window.history.replaceState(null, "", url.toString());
+      } catch (e) {
+        console.warn("[AUTH] Nettoyage URL impossible :", e);
+      }
+    } else {
+      try {
+        token = (localStorage.getItem(TOKEN_STORAGE_KEY) || "").trim();
+      } catch (e) {
+        console.warn("[AUTH] Lecture localStorage impossible :", e);
+      }
+    }
+  } catch (e) {
+    console.warn("[AUTH] Erreur chargement token :", e);
+  }
+  return token;
+}
+
+/** Affiche ou masque le bandeau d'invite d'appairage. */
+function montrerInviteAppairage(visible) {
+  if (!pairingBanner) return;
+  pairingBanner.classList.toggle("visible", visible);
+  pairingBanner.setAttribute("aria-hidden", visible ? "false" : "true");
+}
+
+/**
+ * Met a jour l'etat d'appairage et active/desactive l'UI de commande.
+ * paired=true -> UI utilisable, banniere cachee.
+ * paired=false -> UI verrouillee, banniere d'invite affichee.
+ */
+function appliquerAppairage(paired) {
+  isPaired = paired;
+  document.body.classList.toggle("not-paired", !paired);
+  montrerInviteAppairage(!paired);
+
+  if (recognition) {
+    // En cas de verrouillage, on coupe toute ecoute en cours.
+    if (!paired && isListening) {
+      try {
+        recognition.stop();
+      } catch (e) {
+        console.warn("[AUTH] Arret micro impossible :", e);
+      }
+    }
+  }
+  if (micBtn) micBtn.disabled = !paired || !recognition;
+}
+
+authToken = chargerToken();
+
 // Écouteur pour le bouton stop JARVIS
 stopJarvisBtn.addEventListener("click", () => {
   window.speechSynthesis.cancel(); // Stoppe l'audio mobile
@@ -94,11 +176,38 @@ function connectWS() {
   ws.addEventListener("open", () => {
     console.log("[WS] Connecté à", WS_URL);
     setConnected(true);
+    // Tentative d'authentification. On envoie toujours un message auth :
+    // - avec token si on en a un (client mobile/LAN appaire) ;
+    // - avec token vide sinon (client loopback, auto-authentifie par le backend).
+    try {
+      ws.send(JSON.stringify({ type: "auth", token: authToken || "" }));
+    } catch (e) {
+      console.warn("[AUTH] Envoi auth impossible :", e);
+    }
   });
 
   ws.addEventListener("message", (event) => {
     try {
       const data = JSON.parse(event.data);
+
+      // Resultat d'authentification renvoye par le backend.
+      if (data.action === "auth_result") {
+        if (data.ok === true) {
+          console.log("[AUTH] Appaire.");
+          appliquerAppairage(true);
+        } else {
+          console.warn("[AUTH] Appairage refuse.");
+          appliquerAppairage(false);
+        }
+        return;
+      }
+
+      // Le backend signale qu'une commande a ete ignoree faute d'auth.
+      if (data.action === "auth_required") {
+        console.warn("[AUTH] Authentification requise.");
+        appliquerAppairage(false);
+        return;
+      }
 
       // État de l'orbe (envoyé par le backend lors de ses propres actions)
       if (data.state) {
@@ -143,8 +252,20 @@ function sendCommand(text) {
     console.warn("[WS] WebSocket non connecté, commande ignorée.");
     return false;
   }
-  ws.send(JSON.stringify({ type: "mobile_command", text }));
-  return true;
+  // Pas d'envoi de commande tant que l'appairage n'est pas valide :
+  // le backend l'ignorerait et repondrait auth_required.
+  if (!isPaired) {
+    console.warn("[AUTH] Commande bloquee : appairage requis.");
+    montrerInviteAppairage(true);
+    return false;
+  }
+  try {
+    ws.send(JSON.stringify({ type: "mobile_command", text }));
+    return true;
+  } catch (e) {
+    console.warn("[WS] Envoi commande impossible :", e);
+    return false;
+  }
 }
 
 // ── Affichage dialogue ──────────────────────────────────────────────────────
@@ -299,6 +420,12 @@ if (SpeechRecognition) {
 // ── Bouton microphone ───────────────────────────────────────────────────────
 micBtn.addEventListener("click", () => {
   if (!recognition) return;
+
+  // Bloquer si l'appairage n'est pas valide (mobile non appaire)
+  if (!isPaired) {
+    montrerInviteAppairage(true);
+    return;
+  }
 
   // Bloquer si JARVIS pense ou parle
   if (currentState === "thinking" || currentState === "speaking") return;

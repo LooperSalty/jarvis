@@ -5,6 +5,8 @@
  * - grille des integrations (pastilles vertes/grises)
  * - formulaire "definir une cle API" (dash_set_env) — les valeurs ne sont
  *   JAMAIS affichees, seulement presente/absente
+ * - appairage mobile : lien LAN + token (loopback uniquement, deja gate)
+ * - securisation des cles vers le trousseau (keyring) si dispo
  * - bandeau "redemarrage requis"
  */
 
@@ -104,6 +106,112 @@ function mount(root: HTMLElement): Cleanup {
   env.body.appendChild(keyForm);
   root.appendChild(env.root);
 
+  // ── Panneau appairage mobile ──
+  const pairing = panel(
+    "Appairage mobile",
+    "Connecte ton telephone (meme reseau Wi-Fi) en toute securite."
+  );
+  const showPairingBtn = button("Afficher le lien d'appairage", "primary");
+  const regenPairingBtn = button("Regenerer", "danger");
+  const pairingActions = el("div", "form-row");
+  pairingActions.appendChild(showPairingBtn);
+  pairingActions.appendChild(regenPairingBtn);
+  pairing.body.appendChild(pairingActions);
+
+  // Zone d'affichage du lien + token, remplie a la reception de dash_pairing.
+  const pairingResult = el("div", "pairing-result hidden");
+  pairing.body.appendChild(pairingResult);
+  root.appendChild(pairing.root);
+
+  // ── Panneau securisation des cles (keyring) ──
+  const secrets = panel(
+    "Securiser les cles",
+    "Deplace les cles API du fichier .env vers le trousseau systeme."
+  );
+  const secretsNote = el("p", "panel-note", "");
+  const migrateBtn = button("Deplacer les cles vers le trousseau (keyring)", "primary");
+  secrets.body.appendChild(migrateBtn);
+  secrets.body.appendChild(secretsNote);
+  root.appendChild(secrets.root);
+
+  /** Affiche le lien d'appairage + token recu (echappe via textContent). */
+  function renderPairing(msg: ws.WsMessage): void {
+    const token = asString(msg.token);
+    const lanUrl = asString(msg.lan_url);
+    const lanIp = asString(msg.lan_ip);
+
+    clearChildren(pairingResult);
+    pairingResult.classList.remove("hidden");
+
+    pairingResult.appendChild(
+      el(
+        "p",
+        "pairing-hint",
+        "Ouvre ce lien sur ton telephone (meme reseau Wi-Fi) :"
+      )
+    );
+
+    // Lien cliquable (href controle, texte via textContent) + bouton copier.
+    const linkRow = el("div", "form-row");
+    const link = el("a", "pairing-link", lanUrl || "(adresse LAN indisponible)");
+    if (lanUrl) {
+      link.href = lanUrl;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+    }
+    linkRow.appendChild(link);
+    const copyLinkBtn = button("Copier le lien", "ghost");
+    copyLinkBtn.addEventListener("click", () => {
+      copierPressePapier(lanUrl, "Lien copie.");
+    });
+    linkRow.appendChild(copyLinkBtn);
+    pairingResult.appendChild(linkRow);
+
+    if (lanIp) {
+      pairingResult.appendChild(
+        el("p", "pairing-ip", `IP du PC sur le reseau : ${lanIp}`)
+      );
+    }
+
+    // Token affiche en monospace (utile si saisie manuelle).
+    const tokenRow = el("div", "form-row");
+    tokenRow.appendChild(el("span", "field-label", "Token"));
+    tokenRow.appendChild(el("code", "pairing-token", token || "(indisponible)"));
+    const copyTokenBtn = button("Copier le token", "ghost");
+    copyTokenBtn.addEventListener("click", () => {
+      copierPressePapier(token, "Token copie.");
+    });
+    tokenRow.appendChild(copyTokenBtn);
+    pairingResult.appendChild(tokenRow);
+  }
+
+  /** Copie une valeur dans le presse-papier avec retour visuel (toast). */
+  function copierPressePapier(valeur: string, succes: string): void {
+    if (!valeur) {
+      showToast("Rien a copier.", false);
+      return;
+    }
+    // En contexte non securise (http LAN), navigator.clipboard peut etre
+    // absent a l'execution malgre le typage DOM : on verifie defensivement.
+    const clip: Clipboard | undefined = navigator.clipboard;
+    if (clip === undefined || typeof clip.writeText !== "function") {
+      showToast("Copie automatique indisponible — selectionne le texte.", false);
+      return;
+    }
+    clip.writeText(valeur).then(
+      () => showToast(succes),
+      () => showToast("Copie impossible.", false)
+    );
+  }
+
+  /** Active/desactive le bloc keyring selon la disponibilite backend. */
+  function renderKeyring(disponible: boolean): void {
+    migrateBtn.disabled = !disponible;
+    secretsNote.textContent = disponible
+      ? "Les cles seront lues depuis le trousseau au prochain demarrage."
+      : "Trousseau indisponible (pip install keyring).";
+  }
+
   // ── Rendu depuis dash_overview ──
   function renderIntegrations(flags: Record<string, unknown>): void {
     clearChildren(grid);
@@ -145,6 +253,7 @@ function mount(root: HTMLElement): Cleanup {
     nameInput.value = asString(msg.user_name, nameInput.value);
     renderIntegrations(asRecord(msg.integrations));
     renderEnvKeys(asRecord(msg.env_keys));
+    renderKeyring(asBool(msg.keyring));
     banner.classList.toggle("hidden", !asBool(msg.restart_required));
   }
 
@@ -178,6 +287,28 @@ function mount(root: HTMLElement): Cleanup {
     }
   });
 
+  showPairingBtn.addEventListener("click", () => {
+    if (!ws.send({ type: "dash_get_pairing" })) {
+      showToast("Backend deconnecte.", false);
+    }
+  });
+
+  regenPairingBtn.addEventListener("click", () => {
+    const ok = window.confirm(
+      "Regenerer le token invalidera les appairages existants. Continuer ?"
+    );
+    if (!ok) return;
+    if (!ws.send({ type: "dash_regen_pairing" })) {
+      showToast("Backend deconnecte.", false);
+    }
+  });
+
+  migrateBtn.addEventListener("click", () => {
+    if (!ws.send({ type: "dash_migrate_secrets" })) {
+      showToast("Backend deconnecte.", false);
+    }
+  });
+
   // ── Abonnements WS ──
   const offOverview = ws.on("dash_overview", renderOverview);
   const offSaved = ws.on("dash_env_saved", (msg) => {
@@ -188,6 +319,29 @@ function mount(root: HTMLElement): Cleanup {
       showToast(asString(msg.error, "Echec de l'enregistrement."), false);
     }
     if (asBool(msg.restart_required)) banner.classList.remove("hidden");
+  });
+  const offPairing = ws.on("dash_pairing", renderPairing);
+  const offMigrated = ws.on("dash_secrets_migrated", (msg) => {
+    if (!asBool(msg.ok)) {
+      showToast(asString(msg.error, "Migration des cles echouee."), false);
+      return;
+    }
+    if (!asBool(msg.keyring)) {
+      showToast("Trousseau indisponible — aucune cle deplacee.", false);
+      return;
+    }
+    // Compte les cles effectivement migrees pour un retour parlant.
+    const resultats = asRecord(msg.resultats);
+    let migrees = 0;
+    for (const nom of Object.keys(resultats)) {
+      if (asBool(resultats[nom])) migrees += 1;
+    }
+    showToast(
+      migrees > 0
+        ? `${migrees} cle(s) deplacee(s) vers le trousseau.`
+        : "Aucune cle a deplacer."
+    );
+    fetchOverview();
   });
   const offStatus = ws.onStatus((ok) => {
     // statusDot retourne un nouveau noeud : on remplace et on garde la reference
@@ -201,10 +355,13 @@ function mount(root: HTMLElement): Cleanup {
   if (ws.isConnected()) fetchOverview();
   renderIntegrations({});
   renderEnvKeys({});
+  renderKeyring(false);
 
   return () => {
     offOverview();
     offSaved();
+    offPairing();
+    offMigrated();
     offStatus();
   };
 }
