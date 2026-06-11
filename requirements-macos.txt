@@ -1,0 +1,28 @@
+# Installation macOS pour le mode web/backend de Jarvis.
+#
+# Le fichier requirements.txt actuel est un freeze Windows complet. Il contient
+# notamment PyQt5-Qt5, pywin32, pypiwin32, pywinauto et comtypes, qui ne sont
+# pas adaptes a macOS. Ce fichier garde uniquement les dependances utiles au
+# lancement web/backend.
+#
+# Prerequis systeme probable pour PyAudio :
+#   brew install portaudio
+
+edge-tts>=7.2,<8
+google-api-python-client>=2.0
+google-auth-oauthlib>=1.0
+google-genai>=1.0
+meross_iot>=0.4.10
+openai>=2.0
+pillow>=10.0
+pyautogui>=0.9.54
+pyaudio>=0.2.14
+pygame>=2.6
+pyperclip>=1.9
+python-dotenv>=1.0
+requests>=2.31
+SpeechRecognition>=3.10
+websockets>=15.0
+
+# Optionnel : icone de tray. Sur macOS, le mode web direct reste recommande.
+pystray>=0.19

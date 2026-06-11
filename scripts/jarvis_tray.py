@@ -123,7 +123,12 @@ def restart_backend(_icon=None, _item=None) -> None:
 def open_logs(_icon=None, _item=None) -> None:
     if LOG_PATH.exists():
         try:
-            os.startfile(str(LOG_PATH))
+            if os.name == "nt":
+                os.startfile(str(LOG_PATH))  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(LOG_PATH)], shell=False)
+            else:
+                subprocess.Popen(["xdg-open", str(LOG_PATH)], shell=False)
         except Exception:
             pass
 

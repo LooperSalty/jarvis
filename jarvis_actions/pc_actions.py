@@ -7,6 +7,7 @@ Retourne (None, False) si la commande n'est pas reconnue ; sinon (reponse_vocale
 from __future__ import annotations
 
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -17,6 +18,9 @@ from pathlib import Path
 
 import pyautogui
 from jarvis_config import USER_NAME
+
+HOME = Path.home()
+IS_MAC = platform.system() == "Darwin"
 
 
 def _bring_to_front(title_hint: str, max_wait_s: float = 3.0) -> bool:
@@ -91,15 +95,15 @@ def _bring_to_front(title_hint: str, max_wait_s: float = 3.0) -> bool:
 
 
 _APP_ALIASES = {
-    "chrome": ["chrome.exe", "google chrome"],
-    "firefox": ["firefox.exe"],
-    "edge": ["msedge.exe", "microsoft-edge:"],
-    "vscode": ["code.cmd", "code"],
-    "vs code": ["code.cmd", "code"],
-    "discord": ["Discord.exe", "discord"],
-    "spotify": ["Spotify.exe", "spotify:"],
-    "steam": ["steam.exe", "steam:"],
-    "obsidian": ["Obsidian.exe", "obsidian"],
+    "chrome": ["chrome.exe", "google chrome", "Google Chrome"],
+    "firefox": ["firefox.exe", "Firefox"],
+    "edge": ["msedge.exe", "microsoft-edge:", "Microsoft Edge"],
+    "vscode": ["code.cmd", "code", "Visual Studio Code"],
+    "vs code": ["code.cmd", "code", "Visual Studio Code"],
+    "discord": ["Discord.exe", "discord", "Discord"],
+    "spotify": ["Spotify.exe", "spotify:", "Spotify"],
+    "steam": ["steam.exe", "steam:", "Steam"],
+    "obsidian": ["Obsidian.exe", "obsidian", "Obsidian"],
     "notepad": ["notepad.exe"],
     "bloc-notes": ["notepad.exe"],
     "calculatrice": ["calc.exe"],
@@ -174,12 +178,15 @@ def _try_launch(candidats: list[str]) -> bool:
         try:
             if c.endswith(":") or "://" in c:
                 if os.name == "nt":
-                    os.startfile(c)
+                    os.startfile(c)  # type: ignore[attr-defined]
                 else:
                     webbrowser.open(c)
                 return True
             if shutil.which(c):
                 subprocess.Popen([c], shell=False)
+                return True
+            if IS_MAC and not c.lower().endswith((".exe", ".cmd")):
+                subprocess.Popen(["open", "-a", c], shell=False)
                 return True
         except Exception:
             continue
@@ -214,7 +221,7 @@ def _ouvrir_app(nom: str) -> tuple[str | None, bool]:
     lnk = _trouver_lnk(nom_clean)
     if lnk:
         try:
-            os.startfile(str(lnk))
+            os.startfile(str(lnk))  # type: ignore[attr-defined]
             _bring_to_front(lnk.stem)
             return f"{lnk.stem} ouvert.", True
         except Exception:
@@ -234,8 +241,12 @@ def _ouvrir_app(nom: str) -> tuple[str | None, bool]:
         try:
             if nom_clean.startswith("http"):
                 webbrowser.open(nom_clean)
+            elif IS_MAC:
+                subprocess.Popen(["open", nom_clean], shell=False)
+            elif os.name == "nt":
+                os.startfile(nom_clean)  # type: ignore[attr-defined]
             else:
-                os.startfile(nom_clean)
+                subprocess.Popen(["xdg-open", nom_clean], shell=False)
             return f"Ouvert : {nom_clean}", True
         except Exception:
             pass
@@ -244,7 +255,10 @@ def _ouvrir_app(nom: str) -> tuple[str | None, bool]:
 
 
 def _fermer_fenetre_active() -> tuple[str, bool]:
-    pyautogui.hotkey("alt", "f4")
+    if IS_MAC:
+        pyautogui.hotkey("command", "w")
+    else:
+        pyautogui.hotkey("alt", "f4")
     return "Fenetre fermee.", True
 
 
@@ -257,6 +271,16 @@ def _verrouiller() -> tuple[str, bool]:
                 shell=False,
             )
             return f"PC verrouille, {USER_NAME}.", True
+        except Exception as e:
+            return f"Echec du verrouillage : {e}", False
+    if IS_MAC:
+        try:
+            subprocess.run(
+                ["/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession", "-suspend"],
+                check=False,
+                shell=False,
+            )
+            return f"Session verrouillee, {USER_NAME}.", True
         except Exception as e:
             return f"Echec du verrouillage : {e}", False
     return "Verrouillage non supporte sur cet OS.", False
@@ -305,14 +329,15 @@ def _taper(texte: str) -> tuple[str, bool]:
 
 
 def _copier_coller(action: str) -> tuple[str, bool]:
+    mod = "command" if IS_MAC else "ctrl"
     if action == "copy":
-        pyautogui.hotkey("ctrl", "c")
+        pyautogui.hotkey(mod, "c")
         return "Copie.", True
     if action == "paste":
-        pyautogui.hotkey("ctrl", "v")
+        pyautogui.hotkey(mod, "v")
         return "Colle.", True
     if action == "cut":
-        pyautogui.hotkey("ctrl", "x")
+        pyautogui.hotkey(mod, "x")
         return "Coupe.", True
     return "Action presse-papier inconnue.", False
 
@@ -332,7 +357,7 @@ def executer(cmd: str) -> tuple[str | None, bool]:
         return _verrouiller()
 
     if any(p in c for p in ("screenshot", "capture d'ecran", "capture ecran", "capture l'ecran", "prends une capture")):
-        dossier = os.path.join(os.environ.get("USERPROFILE", "."), "Pictures", "Jarvis")
+        dossier = str(HOME / "Pictures" / "Jarvis")
         return _capture_ecran(dossier)
 
     if "volume" in c or "son" in c:
