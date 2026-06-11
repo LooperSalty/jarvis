@@ -1,0 +1,38 @@
+# ============================================================================
+# Dependances OPTIONNELLES pour la voix avancee (STT local, wake word, barge-in)
+# ============================================================================
+#
+# Ces paquets ne sont PAS necessaires au fonctionnement de Jarvis.
+# Par defaut, Jarvis utilise Google STT (en ligne) et le mot-cle "jarvis"
+# detecte par texte — aucune de ces libs n'est requise.
+#
+# Installe-les UNIQUEMENT si tu actives un des flags opt-in suivants :
+#   - JARVIS_STT_LOCAL=1  -> transcription locale hors-ligne (faster-whisper)
+#   - JARVIS_WAKE_LOCAL=1 -> detection du mot-cle "jarvis" en local (openWakeWord)
+#   - JARVIS_BARGE_IN=1   -> interruption du TTS quand l'utilisateur parle
+#                            (n'utilise que PyAudio, deja dans requirements.txt)
+#
+# ATTENTION : ces dependances sont LOURDES. faster-whisper telecharge des
+# modeles (~75 Mo pour "base", plus pour les tailles superieures) et embarque
+# onnxruntime + ctranslate2. openwakeword embarque aussi onnxruntime/tflite.
+# Le premier chargement d'un modele peut prendre plusieurs secondes.
+#
+# Installation :
+#   python -m pip install -r requirements-voice.txt
+#
+# Ne PAS fusionner ce fichier dans requirements.txt : il doit rester opt-in.
+# ----------------------------------------------------------------------------
+
+# --- STT local (flag JARVIS_STT_LOCAL=1) ------------------------------------
+# Transcription hors-ligne basee sur CTranslate2 (Whisper optimise).
+# Taille du modele configurable via JARVIS_WHISPER_MODEL (defaut "base").
+faster-whisper>=1.0.0
+
+# --- Wake word local (flag JARVIS_WAKE_LOCAL=1) -----------------------------
+# Detection du mot d'activation directement sur le flux micro, sans cloud.
+openwakeword>=0.6.0
+
+# --- Notes ------------------------------------------------------------------
+# - numpy et PyAudio sont deja dans requirements.txt (utilises ailleurs).
+# - Pour le barge-in (JARVIS_BARGE_IN=1), seul PyAudio est requis : aucune
+#   dependance supplementaire a installer ici.

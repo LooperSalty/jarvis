@@ -597,6 +597,38 @@ except Exception as e:
     print(f"[RESUME] Module history_summary desactive : {e}")
     history_summary = None
 
+# ==========================================================================
+# Voix avancee (OPT-IN) : STT local, wake word local, barge-in.
+# Imports tolerants -> None si echec (les libs lourdes faster-whisper /
+# openwakeword sont chargees paresseusement DANS ces modules). Quand les
+# flags sont OFF, le comportement reste STRICTEMENT identique a aujourd'hui.
+# ==========================================================================
+try:
+    from jarvis_actions import voice_stt
+except Exception as e:
+    print(f"[STT] Module voice_stt desactive : {e}")
+    voice_stt = None
+
+try:
+    from jarvis_actions import wake_word
+except Exception as e:
+    print(f"[WAKE] Module wake_word desactive : {e}")
+    wake_word = None
+
+try:
+    from jarvis_actions import barge_in
+except Exception as e:
+    print(f"[BARGE] Module barge_in desactive : {e}")
+    barge_in = None
+
+# Flags voix (defaut OFF = comportement actuel inchange).
+# JARVIS_STT_LOCAL  : "1" = STT local faster-whisper au lieu de recognize_google.
+# JARVIS_WAKE_LOCAL : "1" = wake word local openWakeWord en pre-gate.
+# JARVIS_BARGE_IN   : "1" = interruption du TTS quand l'utilisateur parle.
+STT_LOCAL  = os.getenv("JARVIS_STT_LOCAL", "0") == "1"
+WAKE_LOCAL = os.getenv("JARVIS_WAKE_LOCAL", "0") == "1"
+BARGE_IN   = os.getenv("JARVIS_BARGE_IN", "0") == "1"
+
 # Flags d'activation (defauts preservent le comportement actuel).
 # JARVIS_RESUME_HISTORIQUE : "1" (defaut) = resume l'historique long.
 # JARVIS_MEMOIRE_PROACTIVE : "1" = extrait des faits durables (defaut OFF).
@@ -1792,6 +1824,22 @@ async def parler(texte):
     await send_web_state("speaking")
     speak_volume = 0.0
     tmp = f"jarvis_tts_{int(time.time()*1000)}.mp3"
+
+    # Barge-in OPT-IN : si le flag est on et pyaudio dispo, on surveille le micro
+    # pendant la lecture ; au-dela du seuil RMS, on_parole bascule STOP_PARLER=True
+    # (la boucle ci-dessous gere deja l'arret). No-op total si flag OFF.
+    moniteur_barge = None
+    if BARGE_IN and barge_in is not None:
+        try:
+            if barge_in.disponible():
+                moniteur_barge = barge_in.MoniteurBargeIn(
+                    on_parole=lambda: globals().__setitem__("STOP_PARLER", True)
+                )
+                moniteur_barge.demarrer()
+        except Exception as e:
+            print(f"[BARGE] Echec demarrage barge-in : {e}")
+            moniteur_barge = None
+
     try:
         communicate = edge_tts.Communicate(texte_tts, voice="fr-FR-HenriNeural")
         await communicate.save(tmp)
@@ -1814,6 +1862,12 @@ async def parler(texte):
     except Exception as e:
         print(f"Erreur TTS : {e}")
     finally:
+        # Arret propre du moniteur barge-in (no-op si jamais demarre).
+        if moniteur_barge is not None:
+            try:
+                moniteur_barge.arreter()
+            except Exception as e:
+                print(f"[BARGE] Echec arret barge-in : {e}")
         speak_volume = 0.0
         is_speaking  = False
         STOP_PARLER  = False
@@ -3909,6 +3963,23 @@ def ecouter():
     with mic as source:
         r.adjust_for_ambient_noise(source, duration=1)
 
+    # Wake word local OPT-IN : detecteur openWakeWord cree une seule fois si le
+    # flag JARVIS_WAKE_LOCAL est on et le module + un modele sont chargeables.
+    # Sert de pre-gate : quand Jarvis n'est PAS actif, on n'appelle le STT couteux
+    # QUE si le wake est detecte sur l'audio capture. Si le flag est OFF ou
+    # openWakeWord indispo, detecteur_wake reste None -> logique de wake par texte
+    # historique strictement inchangee.
+    detecteur_wake = None
+    if WAKE_LOCAL and wake_word is not None:
+        try:
+            if wake_word.disponible():
+                detecteur_wake = wake_word.creer_detecteur()
+        except Exception as e:
+            print(f"[WAKE] Echec creation detecteur openWakeWord : {e}")
+            detecteur_wake = None
+        if detecteur_wake is not None:
+            print("[WAKE] Pre-gate openWakeWord actif.")
+
     print("[JARVIS] Microphone pret. En attente de 'Jarvis' ou session active...")
 
     while True:
@@ -3932,7 +4003,44 @@ def ecouter():
                 loop_ws.run_until_complete(send_web_state("idle"))
                 loop_ws.close()
 
-            texte = r.recognize_google(audio, language="fr-FR").lower().strip()
+            # PRE-GATE WAKE WORD LOCAL (OPT-IN) : si un detecteur openWakeWord est
+            # actif et que Jarvis n'est PAS deja reveille, on n'appelle le STT
+            # couteux QUE si le wake est detecte sur l'audio capture. Sinon on
+            # reboucle sans transcrire (economie). Tout echec ici -> on laisse
+            # passer au STT pour ne JAMAIS bloquer la boucle.
+            if detecteur_wake is not None and not jarvis_actif:
+                try:
+                    # Audio capture -> PCM brut 16 kHz mono int16, decoupe en
+                    # frames ~80 ms (1280 echantillons) pour openWakeWord.
+                    pcm = audio.get_raw_data(convert_rate=16000, convert_width=2)
+                    detecteur_wake.reset()
+                    taille_frame = 1280 * 2  # 1280 echantillons * 2 octets (int16)
+                    wake_detecte = False
+                    for i in range(0, len(pcm) - taille_frame + 1, taille_frame):
+                        if detecteur_wake.verifier_frame(pcm[i:i + taille_frame]):
+                            wake_detecte = True
+                            break
+                    if not wake_detecte:
+                        # Pas de wake detecte -> on ne transcrit pas, on reboucle.
+                        continue
+                    print("[WAKE] Wake word local detecte.")
+                except Exception as e:
+                    # Detecteur en echec : on n'interrompt pas la boucle, on
+                    # poursuit avec le STT + wake par texte (repli universel).
+                    print(f"[WAKE] Echec pre-gate (repli STT) : {e}")
+
+            # STT : local (faster-whisper) UNIQUEMENT si le flag JARVIS_STT_LOCAL est
+            # actif. Sinon on garde la ligne historique EXACTE (recognize_google qui
+            # LEVE sr.UnknownValueError/sr.RequestError -> geres par les except plus
+            # bas) pour ne RIEN changer au comportement actuel quand le flag est OFF.
+            if STT_LOCAL and voice_stt is not None:
+                texte = (voice_stt.transcrire(r, audio, language="fr-FR") or "").lower().strip()
+                if not texte:
+                    # whisper/repli n'a rien compris : on saute l'iteration comme le
+                    # faisait UnknownValueError (pas de refresh de session, pas d'aval).
+                    continue
+            else:
+                texte = r.recognize_google(audio, language="fr-FR").lower().strip()
             print(f"[ENTENDU] {texte}")
 
             # GESTION INTERRUPTION DURANT LA PAROLE
@@ -3950,17 +4058,29 @@ def ecouter():
                     loop.close()
                 continue
 
-            if WAKE_WORD in texte or jarvis_actif:
-                if WAKE_WORD in texte:
+            # Detection texte du wake word. Par defaut : substring "jarvis"
+            # (comportement historique strictement inchange). Quand le flag
+            # JARVIS_WAKE_LOCAL est on, on ajoute le repli mot_present (insensible
+            # casse/accents, gere les variantes de transcription whisper). Gate sur
+            # WAKE_LOCAL pour ne RIEN changer quand le flag est OFF.
+            wake_dans_texte = WAKE_WORD in texte
+            if WAKE_LOCAL and not wake_dans_texte and wake_word is not None:
+                try:
+                    wake_dans_texte = wake_word.mot_present(texte)
+                except Exception as e:
+                    print(f"[WAKE] Echec mot_present (repli substring) : {e}")
+
+            if wake_dans_texte or jarvis_actif:
+                if wake_dans_texte:
                     print("[JARVIS] Mot-clé détecté.")
                     jarvis_actif = True
-                
+
                 dernier_message = time.time()
                 commande = nettoyer_commande(texte)
-                
+
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                
+
                 if commande:
                     action_pc = executer_action_pc(commande)
                     if action_pc:
@@ -3968,9 +4088,9 @@ def ecouter():
                     else:
                         loop.run_until_complete(traiter_reponse_ia(commande))
                 else:
-                    if WAKE_WORD in texte: # "Jarvis" tout seul
+                    if wake_dans_texte: # "Jarvis" tout seul
                         loop.run_until_complete(parler(f"Oui {USER_NAME}, je vous écoute."))
-                
+
                 loop.close()
             else:
                 pass

@@ -21,11 +21,39 @@ import {
   labeledField,
   button,
   statusDot,
+  switchToggle,
   showToast,
   asString,
   asBool,
   asRecord,
 } from "./sections";
+
+/** Flags voix avances (opt-in) : cle .env <-> champ renvoye dans overview.voix. */
+const VOIX_FLAGS: ReadonlyArray<{
+  env: string;
+  champ: string;
+  label: string;
+  detail: string;
+}> = [
+  {
+    env: "JARVIS_STT_LOCAL",
+    champ: "stt_local",
+    label: "STT local (faster-whisper)",
+    detail: "Transcription hors-ligne au lieu de la reconnaissance Google.",
+  },
+  {
+    env: "JARVIS_WAKE_LOCAL",
+    champ: "wake_local",
+    label: "Wake word local (openWakeWord)",
+    detail: "Detection du mot d'activation en local avant la transcription.",
+  },
+  {
+    env: "JARVIS_BARGE_IN",
+    champ: "barge_in",
+    label: "Barge-in (interruption vocale)",
+    detail: "Couper la voix de Jarvis des que vous parlez.",
+  },
+];
 
 const INTEGRATIONS: ReadonlyArray<{ id: string; label: string }> = [
   { id: "gemini", label: "Gemini" },
@@ -84,6 +112,52 @@ function mount(root: HTMLElement): Cleanup {
   const grid = el("div", "integration-grid");
   integ.body.appendChild(grid);
   root.appendChild(integ.root);
+
+  // ── Panneau voix (avance) ──
+  // 3 toggles opt-in (defaut OFF). Chaque changement ecrit le flag dans le
+  // .env via dash_set_env ("1" pour activer, "" pour desactiver) et affiche
+  // le bandeau "redemarrage requis". Necessite les libs de requirements-voice.txt.
+  const voix = panel(
+    "Voix (avance)",
+    "Options vocales locales — necessitent les libs de requirements-voice.txt."
+  );
+  // Reference des checkbox pour refleter overview.voix sans les recreer.
+  const voixInputs = new Map<string, HTMLInputElement>();
+  for (const flag of VOIX_FLAGS) {
+    const { root: toggleRoot, input } = switchToggle(false);
+    voixInputs.set(flag.champ, input);
+
+    const row = el("div", "voix-row form-row");
+    const info = el("div", "voix-info");
+    info.appendChild(el("span", "field-label", flag.label));
+    info.appendChild(el("p", "panel-note", flag.detail));
+    row.appendChild(info);
+    row.appendChild(toggleRoot);
+    voix.body.appendChild(row);
+
+    input.addEventListener("change", () => {
+      const valeur = input.checked ? "1" : "";
+      if (
+        ws.send({ type: "dash_set_env", updates: { [flag.env]: valeur } })
+      ) {
+        // Le redemarrage est requis pour que main2 relise le flag au boot.
+        banner.classList.remove("hidden");
+      } else {
+        // Echec d'envoi : on annule visuellement le toggle pour rester honnete.
+        input.checked = !input.checked;
+        showToast("Backend deconnecte.", false);
+      }
+    });
+  }
+  voix.body.appendChild(
+    el(
+      "p",
+      "panel-note",
+      "Active une option puis redemarre Jarvis. Sans les libs installees, " +
+        "Jarvis retombe automatiquement sur le comportement par defaut."
+    )
+  );
+  root.appendChild(voix.root);
 
   // ── Panneau cles API ──
   const env = panel(
@@ -220,6 +294,14 @@ function mount(root: HTMLElement): Cleanup {
     }
   }
 
+  /** Reflete l'etat des flags voix (overview.voix) sur les toggles. */
+  function renderVoix(etat: Record<string, unknown>): void {
+    for (const flag of VOIX_FLAGS) {
+      const input = voixInputs.get(flag.champ);
+      if (input) input.checked = asBool(etat[flag.champ]);
+    }
+  }
+
   function renderEnvKeys(envKeys: Record<string, unknown>): void {
     const names = Object.keys(envKeys);
     const keys = names.length > 0 ? names : [...ENV_KEYS_FALLBACK];
@@ -252,6 +334,7 @@ function mount(root: HTMLElement): Cleanup {
   function renderOverview(msg: ws.WsMessage): void {
     nameInput.value = asString(msg.user_name, nameInput.value);
     renderIntegrations(asRecord(msg.integrations));
+    renderVoix(asRecord(msg.voix));
     renderEnvKeys(asRecord(msg.env_keys));
     renderKeyring(asBool(msg.keyring));
     banner.classList.toggle("hidden", !asBool(msg.restart_required));
@@ -354,6 +437,7 @@ function mount(root: HTMLElement): Cleanup {
   // Etat initial
   if (ws.isConnected()) fetchOverview();
   renderIntegrations({});
+  renderVoix({});
   renderEnvKeys({});
   renderKeyring(false);
 

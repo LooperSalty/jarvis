@@ -103,6 +103,10 @@ CLES_GEREES: tuple[str, ...] = (
     "OBSIDIAN_VAULT",
     "JARVIS_USER_NAME",
     "FORCE_OLLAMA",
+    # Flags voix avancee (opt-in, non secrets) — voir requirements-voice.txt
+    "JARVIS_STT_LOCAL",
+    "JARVIS_WAKE_LOCAL",
+    "JARVIS_BARGE_IN",
 )
 
 # Cles SECRETES parmi CLES_GEREES : stockees dans keyring si dispo (jamais en
@@ -632,6 +636,20 @@ def construire_graphe_memoire(memoire: dict, profil: dict) -> dict:
 # ==========================================
 # HANDLERS — VUE D'ENSEMBLE / .ENV
 # ==========================================
+def _flag_voix_actif(cle: str) -> bool:
+    """True si le flag voix est explicitement active (os.environ == '1')."""
+    return (os.environ.get(cle, "") or "").strip() == "1"
+
+
+def _etat_voix() -> dict[str, bool]:
+    """Etat des 3 flags voix avancee (opt-in, defaut OFF si non definis)."""
+    return {
+        "stt_local": _flag_voix_actif("JARVIS_STT_LOCAL"),
+        "wake_local": _flag_voix_actif("JARVIS_WAKE_LOCAL"),
+        "barge_in": _flag_voix_actif("JARVIS_BARGE_IN"),
+    }
+
+
 async def _h_overview(data: dict) -> dict:
     env_keys = lire_cles_env()
     ollama_ok = await _en_executor(_ollama_disponible)
@@ -641,6 +659,7 @@ async def _h_overview(data: dict) -> dict:
         "integrations": _construire_integrations(env_keys, ollama_ok),
         "env_keys": env_keys,
         "keyring": _keyring_disponible(),
+        "voix": _etat_voix(),
         "restart_required": _RESTART_REQUIRED,
     }
 
