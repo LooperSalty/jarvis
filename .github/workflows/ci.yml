@@ -81,7 +81,7 @@ jobs:
               pass
           PY
 
-      - name: Lint critique (bugs reels : syntaxe, noms indefinis)
+      - name: "Lint critique (bugs reels - syntaxe, noms indefinis)"
         continue-on-error: true
         run: ruff check --select E9,F63,F7,F82 --exclude apprendre,OpenJarvis-main,build,dist .
 
