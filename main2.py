@@ -406,6 +406,15 @@ def ajouter_memoire(cle, valeur):
             OBSIDIAN.save_memory(cle, valeur, timestamp)
         except Exception as e:
             print(f"[OBSIDIAN] Echec ecriture memoire : {e}")
+    # Indexation vectorielle (RAG). memory_rag est defini plus bas dans le module
+    # mais accessible au runtime ; globals().get evite un NameError si l'ordre change.
+    _rag = globals().get("memory_rag")
+    if _rag is not None:
+        try:
+            if _rag.disponible():
+                _rag.indexer(cle, valeur, timestamp)
+        except Exception as e:
+            print(f"[RAG] Echec indexation '{cle}' : {e}")
 
 def supprimer_memoire(cle):
     memoire = charger_memoire()
@@ -417,6 +426,14 @@ def supprimer_memoire(cle):
                 OBSIDIAN.delete_memory(cle)
             except Exception as e:
                 print(f"[OBSIDIAN] Echec suppression : {e}")
+        # Retrait de l'index vectoriel (RAG).
+        _rag = globals().get("memory_rag")
+        if _rag is not None:
+            try:
+                if _rag.disponible():
+                    _rag.supprimer(cle)
+            except Exception as e:
+                print(f"[RAG] Echec suppression index '{cle}' : {e}")
         return True
     return False
 
@@ -544,6 +561,34 @@ except Exception as e:
     print(f"[MCP] Module mcp_client desactive : {e}")
     mcp_client = None
 
+# Memoire vectorielle (RAG) : embeddings locaux via Ollama. Tout le code en aval
+# verifie memory_rag.disponible() avant usage -> degradation propre si absent.
+try:
+    from jarvis_actions import memory_rag
+except Exception as e:
+    print(f"[RAG] Module memory_rag desactive : {e}")
+    memory_rag = None
+
+# Extraction proactive de faits durables (OPT-IN via JARVIS_MEMOIRE_PROACTIVE=1).
+try:
+    from jarvis_actions import memory_proactive
+except Exception as e:
+    print(f"[PROACTIF] Module memory_proactive desactive : {e}")
+    memory_proactive = None
+
+# Resume automatique de l'historique quand il devient trop long.
+try:
+    from jarvis_actions import history_summary
+except Exception as e:
+    print(f"[RESUME] Module history_summary desactive : {e}")
+    history_summary = None
+
+# Flags d'activation (defauts preservent le comportement actuel).
+# JARVIS_RESUME_HISTORIQUE : "1" (defaut) = resume l'historique long.
+# JARVIS_MEMOIRE_PROACTIVE : "1" = extrait des faits durables (defaut OFF).
+RESUME_HISTORIQUE = os.getenv("JARVIS_RESUME_HISTORIQUE", "1") == "1"
+MEMOIRE_PROACTIVE = os.getenv("JARVIS_MEMOIRE_PROACTIVE", "0") == "1"
+
 try:
     import jarvis_profile
 except Exception as e:
@@ -579,14 +624,77 @@ def consigner_echange(role_user_or_model, texte):
     except Exception as e:
         print(f"[OBSIDIAN] Echec consignation : {e}")
 
-def construire_contexte_memoire():
+def construire_contexte_memoire(query: str | None = None):
+    """Construit le bloc memoire injecte dans le prompt systeme.
+
+    Si une `query` est fournie ET que le RAG est disponible ET que la memoire est
+    assez grande (>12 entrees), on ne renvoie QUE les souvenirs pertinents (RAG)
+    pour eviter de gonfler le prompt. Sinon : comportement historique (toute la
+    memoire). Toute erreur RAG -> repli silencieux sur la memoire complete."""
     memoire = charger_memoire()
     if not memoire:
         return ""
+
+    # RAG cible : recherche semantique des souvenirs lies a la requete courante.
+    _rag = globals().get("memory_rag")
+    if query and _rag is not None and len(memoire) > 12:
+        try:
+            if _rag.disponible():
+                resultats = _rag.rechercher(query, k=6)
+                if resultats:
+                    lignes = ["SOUVENIRS PERTINENTS :"]
+                    for r in resultats:
+                        cle = r.get("cle", "")
+                        valeur = r.get("valeur", "")
+                        lignes.append(f"  - {cle} : {valeur}")
+                    return "\n".join(lignes)
+        except Exception as e:
+            print(f"[RAG] Echec recherche contexte : {e}")
+        # Pas de resultat ou erreur -> on retombe sur la memoire complete ci-dessous.
+
     lignes = ["MEMOIRE PERSISTANTE :"]
     for cle, data in memoire.items():
         lignes.append(f"  - {cle} : {data['valeur']} (note le {data['timestamp']})")
     return "\n".join(lignes)
+
+
+def _dash_chercher_memoire(query: str):
+    """Recherche dans la memoire pour le dashboard.
+
+    Retourne (results, rag_actif) ou results = [{cle, valeur, score}] trie desc.
+    Si le RAG est disponible -> recherche semantique. Sinon -> repli par sous-chaine
+    (score binaire 1.0) sur la memoire complete. Jamais d'exception propagee."""
+    _rag = globals().get("memory_rag")
+    if query and _rag is not None:
+        try:
+            if _rag.disponible():
+                resultats = _rag.rechercher(query, k=8)
+                # Normalise : on ne garde que les champs attendus par le protocole.
+                results = [
+                    {
+                        "cle": r.get("cle", ""),
+                        "valeur": r.get("valeur", ""),
+                        "score": float(r.get("score", 0.0)),
+                    }
+                    for r in (resultats or [])
+                ]
+                return results, True
+        except Exception as e:
+            print(f"[RAG] Echec recherche dashboard : {e}")
+
+    # Repli sans RAG : filtre par sous-chaine (insensible a la casse).
+    try:
+        memoire = charger_memoire()
+        q = query.lower()
+        results = []
+        for cle, data in memoire.items():
+            valeur = data.get("valeur", "")
+            if not q or q in cle.lower() or q in str(valeur).lower():
+                results.append({"cle": cle, "valeur": valeur, "score": 1.0})
+        return results, False
+    except Exception as e:
+        print(f"[RAG] Echec repli recherche memoire : {e}")
+        return [], False
 
 # ==========================================
 # WEBSOCKET
@@ -651,6 +759,20 @@ async def ws_handler(websocket):
                         await websocket.send(json.dumps({
                             "action": "dash_error",
                             "error": "Configuration accessible uniquement depuis le PC local.",
+                        }))
+                        continue
+                    # Recherche semantique dans la memoire (RAG) pilotee depuis le
+                    # dashboard. Gere ici (loopback uniquement) pour rester deterministe
+                    # quel que soit le routeur dashboard. Repli "rag:false" si le RAG est
+                    # indisponible -> on retourne la memoire complete filtree par sous-chaine.
+                    if data.get("type") == "dash_memory_search":
+                        query = (data.get("query") or "").strip()
+                        results, rag_actif = _dash_chercher_memoire(query)
+                        await websocket.send(json.dumps({
+                            "action": "dash_memory_results",
+                            "query": query,
+                            "results": results,
+                            "rag": rag_actif,
                         }))
                         continue
                     if jarvis_dashboard_api and await jarvis_dashboard_api.traiter_message_dashboard(data, websocket):
@@ -832,8 +954,10 @@ async def request_screen_capture():
 # ==========================================
 # PROMPT SYSTEME
 # ==========================================
-def construire_system_prompt():
-    contexte_memoire = construire_contexte_memoire()
+def construire_system_prompt(query: str | None = None):
+    # `query` = texte utilisateur courant, transmis pour la recherche RAG ciblee.
+    # Defaut None -> comportement historique (toute la memoire).
+    contexte_memoire = construire_contexte_memoire(query)
     base = (
         f"Tu es JARVIS, une IA sophistiquée, élégante et experte mondiale. {USER_NAME} est ton créateur. "
         "Tu possèdes une expertise de niveau professionnel dans les domaines suivants :\n"
@@ -941,6 +1065,31 @@ historique = charger_historique()
 if historique:
     print(f"[HIST] {len(historique)} messages restaures depuis le disque.")
 synchroniser_memoire_obsidian()
+
+
+def _reindexer_rag_demarrage():
+    """Reconstruit l'index vectoriel au demarrage si l'index est vide.
+
+    Lance dans un thread daemon : l'embedding de toute la memoire peut prendre
+    plusieurs secondes (un appel Ollama par entree) et ne doit JAMAIS bloquer le
+    demarrage. Aucune exception ne remonte (degradation propre)."""
+    if memory_rag is None:
+        return
+    try:
+        if not memory_rag.disponible():
+            print("[RAG] Embeddings indisponibles (Ollama/modele absent) — RAG inactif.")
+            return
+        if memory_rag.nb_indexes() == 0:
+            n = memory_rag.reindexer_tout(charger_memoire())
+            print(f"[RAG] Index vectoriel reconstruit : {n} entree(s).")
+        else:
+            print(f"[RAG] Index vectoriel deja present ({memory_rag.nb_indexes()} entree(s)).")
+    except Exception as e:
+        print(f"[RAG] Echec reindexation demarrage : {e}")
+
+
+if memory_rag is not None:
+    threading.Thread(target=_reindexer_rag_demarrage, daemon=True).start()
 
 is_listening = False
 is_speaking  = False
@@ -1959,7 +2108,8 @@ async def demander_ia(texte):
             print(f"[CERVEAU] Tentative avec Gemini (Liste: {MODELS_LIST})...")
             # On ne modifie pas l'historique global avant d'être sûr que ça marche
             temp_hist = historique + [types.Content(role="user", parts=[types.Part(text=texte)])]
-            prompt_actuel = construire_system_prompt()
+            # texte courant transmis pour la recherche RAG ciblee dans le prompt.
+            prompt_actuel = construire_system_prompt(texte)
             
             last_err = None
             for model_name in MODELS_LIST:
@@ -2050,6 +2200,66 @@ async def demander_ia(texte):
         is_thinking = False
         await send_web_state("idle")
 
+
+async def _llm_simple(prompt: str) -> str:
+    """Appel LLM one-shot, SANS toucher a l'historique ni aux etats UI.
+
+    Utilise par les taches de fond (resume d'historique, extraction de faits).
+    Gemini en priorite (si dispo et pas FORCE_OLLAMA), repli Ollama. Renvoie ""
+    en cas d'echec — jamais d'exception propagee."""
+    try:
+        if client is not None and not FORCE_OLLAMA:
+            try:
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        client.models.generate_content,
+                        model=MODELS_LIST[0],
+                        config=types.GenerateContentConfig(temperature=0.2),
+                        contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
+                    ),
+                    timeout=20.0,
+                )
+                return (response.text or "").strip()
+            except Exception as e:
+                print(f"[LLM-SIMPLE] Gemini KO ({e}), repli Ollama.")
+        # Repli local : reutilise le chat Ollama brut sans historique global.
+        return (await _ollama_chat_simple(prompt)) or ""
+    except Exception as e:
+        print(f"[LLM-SIMPLE] Echec : {e}")
+        return ""
+
+
+async def _ollama_chat_simple(prompt: str) -> str:
+    """Appel Ollama /api/chat one-shot (un seul message user, pas d'historique)."""
+    try:
+        modeles = _OLLAMA_MODELS_DISPO or _decouvrir_modeles_ollama()
+        for modele in modeles:
+            try:
+                r = await asyncio.to_thread(
+                    requests.post,
+                    f"{OLLAMA_URL}/api/chat",
+                    json={
+                        "model": modele,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "stream": False,
+                    },
+                    timeout=60,
+                )
+                if r.status_code == 200:
+                    return (r.json().get("message", {}).get("content", "") or "").strip()
+            except Exception as e:
+                print(f"[LLM-SIMPLE] Ollama {modele} KO : {e}")
+                continue
+    except Exception as e:
+        print(f"[LLM-SIMPLE] Ollama indisponible : {e}")
+    return ""
+
+
+def _llm_ia_disponible() -> bool:
+    """True si un cerveau IA (Gemini ou Ollama) peut etre sollicite."""
+    return client is not None or FORCE_OLLAMA or bool(_OLLAMA_MODELS_DISPO)
+
+
 async def demander_ia_vision(texte, img_b64):
     """Analyse une image (capture d'écran) avec Gemini Vision."""
     global is_thinking, historique
@@ -2065,7 +2275,7 @@ async def demander_ia_vision(texte, img_b64):
             mime_type="image/jpeg"
         )
         
-        prompt_actuel = construire_system_prompt()
+        prompt_actuel = construire_system_prompt(texte)
         prompt_actuel += f"\n\nIMPORTANT : Tu viens de recevoir une capture d'écran de {USER_NAME}. Analyse-la attentivement et réponds à sa question en te basant sur ce que tu vois."
         
         # On envoie l'image et le texte avec retry en cas de 503
@@ -2850,6 +3060,75 @@ def _click_spotify_play_button() -> bool:
         return False
 
 
+async def _resumer_historique_si_besoin():
+    """Compacte l'historique global s'il devient trop long (resume des anciens).
+
+    Branche par le flag JARVIS_RESUME_HISTORIQUE (defaut ON). Necessite un cerveau
+    IA dispo. Remplace IN-PLACE le contenu de `historique` (historique[:] = ...) pour
+    que toutes les references globales restent valides. Jamais d'exception propagee."""
+    global historique
+    if not RESUME_HISTORIQUE or history_summary is None:
+        return
+    if not _llm_ia_disponible():
+        return
+    try:
+        nouvelle = await history_summary.resumer_si_besoin(historique, _llm_simple)
+        if nouvelle is not None:
+            ancien = len(historique)
+            historique[:] = nouvelle
+            print(f"[RESUME] Historique compacte : {ancien} -> {len(historique)} messages.")
+            try:
+                sauvegarder_historique(historique)
+            except Exception as e:
+                print(f"[RESUME] Echec sauvegarde post-resume : {e}")
+    except Exception as e:
+        print(f"[RESUME] Echec resume historique : {e}")
+
+
+async def _extraire_faits_proactif(user_text: str, jarvis_text: str):
+    """Extrait en tache de fond les faits durables sur l'utilisateur (OPT-IN).
+
+    Active uniquement si JARVIS_MEMOIRE_PROACTIVE=1 et un cerveau IA dispo. Chaque
+    fait extrait est memorise via ajouter_memoire SAUF si la cle existe deja (dedup).
+    Ne bloque jamais la reponse et n'emet aucune exception."""
+    if not MEMOIRE_PROACTIVE or memory_proactive is None:
+        return
+    if not _llm_ia_disponible():
+        return
+    try:
+        faits = await memory_proactive.extraire_faits(user_text, jarvis_text, _llm_simple)
+        if not faits:
+            return
+        memoire = charger_memoire()
+        for fait in faits:
+            try:
+                cle = (fait.get("cle") or "").strip()
+                valeur = (fait.get("valeur") or "").strip()
+                if not cle or not valeur:
+                    continue
+                if cle in memoire:
+                    continue  # dedup : on n'ecrase pas un fait deja connu
+                ajouter_memoire(cle, valeur)
+                memoire[cle] = {"valeur": valeur, "timestamp": ""}  # evite les doublons intra-lot
+                print(f"[PROACTIF] Fait memorise : {cle} = {valeur}")
+            except Exception as e:
+                print(f"[PROACTIF] Echec memorisation fait : {e}")
+    except Exception as e:
+        print(f"[PROACTIF] Echec extraction faits : {e}")
+
+
+def _lancer_taches_post_conversation(user_text: str, jarvis_text: str):
+    """Declenche en arriere-plan resume d'historique + memoire proactive.
+
+    Appele apres une reponse conversationnelle reussie. Utilise ensure_future pour
+    ne JAMAIS bloquer la reponse vocale. Tolere l'absence de boucle (no-op)."""
+    try:
+        asyncio.ensure_future(_resumer_historique_si_besoin())
+        asyncio.ensure_future(_extraire_faits_proactif(user_text, jarvis_text))
+    except Exception as e:
+        print(f"[POST-CONV] Echec lancement taches de fond : {e}")
+
+
 async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None):
     global MODE_IRON_MAN, jarvis_actif, dernier_message, _skip_pc_audio, STOP_PARLER
 
@@ -3262,6 +3541,10 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None):
     if not json_blocks:
         await parler(reponse)
         _skip_pc_audio = False
+        # Reponse conversationnelle reussie : on declenche en arriere-plan le resume
+        # d'historique (si trop long) et l'extraction proactive de faits (opt-in).
+        # Ces taches ne bloquent jamais et degradent proprement si indisponibles.
+        _lancer_taches_post_conversation(texte_utilisateur, reponse)
         return
 
     for block in json_blocks:

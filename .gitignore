@@ -14,6 +14,9 @@ jarvis_home_config.py
 jarvis_memoire.json
 jarvis_historique.json
 
+# Index vectoriel local de la memoire (RAG via embeddings Ollama, regenerable)
+jarvis_memoire_vec.db
+
 # Profil utilisateur (donnees perso : famille, adresse, habitudes).
 # Modele : jarvis_profile_example.json
 jarvis_profile.json

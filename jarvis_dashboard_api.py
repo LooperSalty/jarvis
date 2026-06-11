@@ -65,6 +65,12 @@ except Exception as e:
     print(f"[DASHBOARD] Module model_advisor_service indisponible : {e}")
 
 try:
+    from jarvis_actions import memory_rag
+except Exception as e:
+    memory_rag = None
+    print(f"[DASHBOARD] Module memory_rag indisponible : {e}")
+
+try:
     import jarvis_security
 except Exception as e:
     jarvis_security = None
@@ -796,6 +802,43 @@ async def _h_memory_delete(data: dict) -> dict:
     return {"action": "dash_memory_saved", "ok": bool(fn(cle))}
 
 
+async def _h_memory_search(data: dict) -> dict:
+    """Recherche semantique (RAG) dans la memoire via embeddings Ollama.
+
+    L'appel a memory_rag.rechercher fait du reseau (Ollama) : il est deporte
+    dans un thread (_en_executor) pour ne pas figer l'event loop. Si le module
+    RAG est absent ou Ollama indisponible, rag=False et results=[] (le frontend
+    affiche une note expliquant la degradation).
+    """
+    query = str(data.get("query", "")).strip()
+    if memory_rag is None:
+        return {"action": "dash_memory_results", "query": query, "results": [], "rag": False}
+    if not query:
+        return {"action": "dash_memory_results", "query": query, "results": [], "rag": False}
+    try:
+        rag_actif = bool(await _en_executor(memory_rag.disponible))
+    except Exception as e:
+        print(f"[DASHBOARD] memory_rag.disponible en echec : {e}")
+        rag_actif = False
+    if not rag_actif:
+        return {"action": "dash_memory_results", "query": query, "results": [], "rag": False}
+    try:
+        bruts = await _en_executor(memory_rag.rechercher, query, 8)
+    except Exception as e:
+        print(f"[DASHBOARD] memory_rag.rechercher en echec : {e}")
+        return {"action": "dash_memory_results", "query": query, "results": [], "rag": True}
+    results: list[dict] = []
+    for item in bruts or []:
+        if not isinstance(item, dict):
+            continue
+        results.append({
+            "cle": str(item.get("cle", "")),
+            "valeur": str(item.get("valeur", "")),
+            "score": float(item.get("score", 0.0) or 0.0),
+        })
+    return {"action": "dash_memory_results", "query": query, "results": results, "rag": True}
+
+
 # ==========================================
 # HANDLERS — SPECS / RECO MODELES
 # ==========================================
@@ -1007,6 +1050,7 @@ _HANDLERS = {
     "dash_get_memory": _h_get_memory,
     "dash_memory_add": _h_memory_add,
     "dash_memory_delete": _h_memory_delete,
+    "dash_memory_search": _h_memory_search,
     "dash_get_specs": _h_get_specs,
     "dash_model_reco": _h_model_reco,
     "dash_mcp_list": _h_mcp_list,

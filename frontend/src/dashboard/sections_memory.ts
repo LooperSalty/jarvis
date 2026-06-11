@@ -44,6 +44,23 @@ interface MemoryItem {
   timestamp: string;
 }
 
+interface SearchResult {
+  cle: string;
+  valeur: string;
+  score: number;
+}
+
+function parseResults(raw: unknown): SearchResult[] {
+  return asArray(raw).map((it) => {
+    const r = asRecord(it);
+    return {
+      cle: asString(r.cle),
+      valeur: asString(r.valeur),
+      score: asNumber(r.score, 0),
+    };
+  });
+}
+
 /** Normalise la reponse serveur en donnees sures pour graph.ts. */
 function parseGraph(raw: Record<string, unknown>): {
   nodes: GraphNode[];
@@ -103,6 +120,24 @@ function mount(root: HTMLElement): Cleanup {
   pList.body.appendChild(addForm);
   layout.appendChild(pList.root);
 
+  // ── Recherche semantique (RAG) ──
+  const pSearch = panel(
+    "Rechercher dans la memoire",
+    "Recherche semantique par sens (embeddings locaux Ollama)"
+  );
+  const searchInput = textInput("Ex : quel vehicule j'ai ?");
+  const searchBtn = button("Rechercher", "primary");
+  const searchForm = el("div", "form-row");
+  searchForm.appendChild(labeledField("Requete", searchInput));
+  searchForm.appendChild(searchBtn);
+  pSearch.body.appendChild(searchForm);
+  const searchNote = el("div", "memory-search-note");
+  searchNote.style.display = "none";
+  pSearch.body.appendChild(searchNote);
+  const resultsBox = el("div", "memory-results");
+  pSearch.body.appendChild(resultsBox);
+  layout.appendChild(pSearch.root);
+
   // ── Graphe : handle de rendu, detruit avant chaque re-rendu ──
   let graphHandle: { destroy(): void } | null = null;
 
@@ -160,6 +195,69 @@ function mount(root: HTMLElement): Cleanup {
     ws.send({ type: "dash_get_memory" });
   }
 
+  // ── Recherche semantique : rendu des resultats ──
+  function setSearchNote(message: string): void {
+    if (message) {
+      searchNote.textContent = message;
+      searchNote.style.display = "";
+    } else {
+      searchNote.textContent = "";
+      searchNote.style.display = "none";
+    }
+  }
+
+  function renderResults(
+    query: string,
+    results: SearchResult[],
+    rag: boolean
+  ): void {
+    clearChildren(resultsBox);
+    if (!rag) {
+      setSearchNote(
+        "Recherche semantique indisponible (Ollama + modele d'embeddings requis)."
+      );
+      return;
+    }
+    setSearchNote("");
+    if (results.length === 0) {
+      resultsBox.appendChild(
+        el("div", "empty", `Aucun resultat pour "${query}".`)
+      );
+      return;
+    }
+    for (const res of results) {
+      const row = el("div", "memory-result");
+      const head = el("div", "memory-result-head");
+      head.appendChild(el("strong", "memory-key", res.cle));
+      const pct = Math.round(Math.max(0, Math.min(1, res.score)) * 100);
+      head.appendChild(el("span", "memory-score", `${pct}%`));
+      row.appendChild(head);
+      row.appendChild(el("span", "memory-value", res.valeur));
+      resultsBox.appendChild(row);
+    }
+  }
+
+  function runSearch(): void {
+    const query = searchInput.value.trim();
+    if (!query) {
+      showToast("Saisis une requete de recherche.", false);
+      return;
+    }
+    if (ws.send({ type: "dash_memory_search", query })) {
+      setSearchNote("Recherche en cours...");
+    } else {
+      showToast("Backend deconnecte.", false);
+    }
+  }
+
+  searchBtn.addEventListener("click", runSearch);
+  searchInput.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      runSearch();
+    }
+  });
+
   addBtn.addEventListener("click", () => {
     const cle = addKey.value.trim();
     const valeur = addValue.value.trim();
@@ -188,6 +286,13 @@ function mount(root: HTMLElement): Cleanup {
       showToast(asString(msg.error, "Echec de la mise a jour memoire."), false);
     }
   });
+  const offResults = ws.on("dash_memory_results", (msg) => {
+    renderResults(
+      asString(msg.query),
+      parseResults(msg.results),
+      asBool(msg.rag)
+    );
+  });
   const offStatus = ws.onStatus((ok) => {
     if (ok) fetchMemory();
   });
@@ -198,6 +303,7 @@ function mount(root: HTMLElement): Cleanup {
   return () => {
     offMemory();
     offSaved();
+    offResults();
     offStatus();
     destroyGraph();
   };
