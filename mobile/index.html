@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#05080f" />
+    <title>J.A.R.V.I.S — Mobile</title>
+    <style>
+      /* ── Base ─────────────────────────────────────────────────────────── */
+      :root {
+        --bg: #05080f;
+        --fg: #cfe9ff;
+        --muted: #6f8aa6;
+        --accent: #4be1ff;
+        --accent-dim: rgba(75, 225, 255, 0.18);
+        --panel: rgba(10, 16, 28, 0.85);
+        --danger: #ff5a6e;
+        --ok: #38e08a;
+      }
+      * {
+        box-sizing: border-box;
+        -webkit-tap-highlight-color: transparent;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+      body {
+        background:
+          radial-gradient(
+            ellipse at 50% 30%,
+            rgba(20, 40, 70, 0.55),
+            var(--bg) 70%
+          ),
+          var(--bg);
+        color: var(--fg);
+        font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+        display: flex;
+        flex-direction: column;
+        min-height: 100dvh;
+        overflow: hidden;
+      }
+
+      /* ── Bandeau d'appairage ──────────────────────────────────────────── */
+      #pairing-banner {
+        display: none;
+        margin: 12px;
+        padding: 14px 16px;
+        border-radius: 14px;
+        background: rgba(40, 16, 24, 0.9);
+        border: 1px solid rgba(255, 90, 110, 0.35);
+        color: #ffd5db;
+        font-size: 0.92rem;
+        line-height: 1.45;
+        text-align: center;
+      }
+      #pairing-banner.visible {
+        display: block;
+      }
+      #pairing-banner strong {
+        color: #fff;
+      }
+
+      /* ── Badge de connexion ───────────────────────────────────────────── */
+      #connection-badge {
+        position: fixed;
+        top: max(12px, env(safe-area-inset-top));
+        right: 12px;
+        z-index: 10;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: var(--panel);
+        border: 1px solid var(--accent-dim);
+        font-size: 0.72rem;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+      }
+      #connection-badge .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--danger);
+        box-shadow: 0 0 8px var(--danger);
+      }
+      #connection-badge.connected .dot {
+        background: var(--ok);
+        box-shadow: 0 0 8px var(--ok);
+      }
+      #connection-badge.connected {
+        color: var(--ok);
+      }
+
+      /* ── Zone de dialogue ─────────────────────────────────────────────── */
+      main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        padding: 64px 20px 20px;
+        text-align: center;
+      }
+      #status-text {
+        font-size: 0.82rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--accent);
+        opacity: 0.85;
+        min-height: 1.2em;
+      }
+      #user-text {
+        font-size: 1.05rem;
+        color: var(--fg);
+        min-height: 1.4em;
+        max-width: 36ch;
+        word-break: break-word;
+      }
+      #jarvis-text {
+        font-size: 0.98rem;
+        color: var(--muted);
+        max-width: 40ch;
+        line-height: 1.5;
+        word-break: break-word;
+      }
+
+      /* Pulsation de l'indicateur selon l'etat */
+      .orb {
+        width: 96px;
+        height: 96px;
+        border-radius: 50%;
+        background: radial-gradient(
+          circle at 50% 40%,
+          var(--accent),
+          rgba(75, 225, 255, 0.05) 70%
+        );
+        opacity: 0.55;
+        transition: transform 0.3s ease, opacity 0.3s ease;
+      }
+      body.state-listening .orb {
+        opacity: 0.95;
+        transform: scale(1.08);
+      }
+      body.state-thinking .orb {
+        opacity: 0.8;
+        animation: pulse 1.2s ease-in-out infinite;
+      }
+      body.state-speaking .orb {
+        opacity: 1;
+        animation: pulse 0.7s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.12);
+        }
+      }
+
+      /* ── Barre de controle ────────────────────────────────────────────── */
+      footer {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        padding: 16px 20px max(20px, env(safe-area-inset-bottom));
+      }
+      #mic-btn {
+        width: 84px;
+        height: 84px;
+        border-radius: 50%;
+        border: 1px solid var(--accent-dim);
+        background: var(--panel);
+        color: var(--accent);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: transform 0.15s ease, box-shadow 0.2s ease;
+      }
+      #mic-btn:active {
+        transform: scale(0.94);
+      }
+      #mic-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      body.state-listening #mic-btn {
+        color: var(--danger);
+        box-shadow: 0 0 18px rgba(255, 90, 110, 0.5);
+      }
+      #mic-btn .stop-icon {
+        display: none;
+      }
+      #mic-label {
+        font-size: 0.7rem;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }
+      #stop-jarvis-btn {
+        display: none;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 18px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 90, 110, 0.35);
+        background: rgba(40, 16, 24, 0.85);
+        color: var(--danger);
+        font-size: 0.82rem;
+        cursor: pointer;
+      }
+
+      /* UI verrouillee tant que l'appairage n'est pas valide */
+      body.not-paired main,
+      body.not-paired footer {
+        opacity: 0.35;
+        pointer-events: none;
+        filter: grayscale(0.4);
+      }
+    </style>
+  </head>
+  <body class="state-idle">
+    <!-- Bandeau d'invite d'appairage (masque par defaut) -->
+    <div id="pairing-banner" role="alert" aria-hidden="true">
+      <strong>Appairage requis.</strong> Ouvre le lien d'appairage depuis le
+      dashboard du PC (section « Appairage mobile ») sur le meme reseau Wi-Fi.
+    </div>
+
+    <!-- Badge de connexion -->
+    <div id="connection-badge" class="disconnected">
+      <span class="dot"></span>
+      <span id="connection-label">reconnexion...</span>
+    </div>
+
+    <!-- Zone de dialogue -->
+    <main>
+      <div class="orb" aria-hidden="true"></div>
+      <div id="status-text">en attente</div>
+      <div id="user-text"></div>
+      <div id="jarvis-text"></div>
+    </main>
+
+    <!-- Barre de controle -->
+    <footer>
+      <button id="stop-jarvis-btn" type="button" aria-label="Arreter Jarvis">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <rect x="6" y="6" width="12" height="12" rx="2" />
+        </svg>
+        Stop
+      </button>
+
+      <button id="mic-btn" type="button" aria-label="Parler">
+        <svg
+          class="mic-icon"
+          width="32"
+          height="32"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+          <line x1="12" y1="19" x2="12" y2="23" />
+        </svg>
+        <svg
+          class="stop-icon"
+          width="30"
+          height="30"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <rect x="6" y="6" width="12" height="12" rx="2" />
+        </svg>
+      </button>
+      <span id="mic-label">APPUYER POUR PARLER</span>
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>

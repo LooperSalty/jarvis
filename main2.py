@@ -40,6 +40,41 @@ from jarvis_config import USER_NAME
 # Chargement des variables d'environnement
 load_dotenv()
 
+# Securite : auth WebSocket par token (clients LAN) + secrets via keyring.
+# Imports tolerants (comme les autres modules optionnels) : -> None si echec,
+# tout le code en aval verifie la disponibilite avant usage.
+try:
+    import jarvis_security
+except Exception as _e:
+    print(f"[SECURITE] Module jarvis_security desactive : {_e}")
+    jarvis_security = None
+
+try:
+    import jarvis_secrets
+except Exception as _e:
+    print(f"[SECRETS] Module jarvis_secrets desactive : {_e}")
+    jarvis_secrets = None
+
+# Liste des cles secretes connues. Si elles sont stockees dans keyring (et absentes
+# de l'environnement), on les repeuple dans os.environ AVANT la lecture ci-dessous.
+_CLES_SECRETES = [
+    "GEMINI_API_KEY",
+    "YOUTUBE_API_KEY",
+    "XAI_API_KEY",
+    "HA_TOKEN",
+    "SERPAPI_API_KEY",
+    "GROQ_API_KEY",
+    "MEROSS_PASSWORD",
+    "MEROSS_EMAIL",
+]
+if jarvis_secrets is not None:
+    try:
+        _nb = jarvis_secrets.charger_dans_environ(_CLES_SECRETES)
+        if _nb:
+            print(f"[SECRETS] {_nb} cle(s) chargee(s) depuis keyring.")
+    except Exception as _e:
+        print(f"[SECRETS] Echec chargement keyring : {_e}")
+
 
 import ast as _ast
 import operator as _operator
@@ -525,6 +560,10 @@ try:
         # OBSIDIAN est defini plus haut au runtime ; globals() evite un NameError
         # si l'ordre d'initialisation change.
         "obsidian_actif": lambda: globals().get("OBSIDIAN") is not None,
+        # IP LAN pour que le dashboard construise le lien d'appairage mobile
+        # (http://<LAN_IP>:8080/?token=...). Le token est lu cote dashboard via
+        # import direct de jarvis_security (jamais expose ici).
+        "lan_ip": LAN_IP,
     })
 except Exception as e:
     print(f"[DASHBOARD] Module jarvis_dashboard_api desactive : {e}")
@@ -553,10 +592,23 @@ def construire_contexte_memoire():
 # WEBSOCKET
 # ==========================================
 CONNECTED_CLIENTS = set()
+# Clients authentifies : loopback (auto) ou LAN ayant fourni un token valide.
+# Seuls ces clients recoivent les broadcasts de conversation et peuvent envoyer
+# des commandes. Voir _client_est_local + le handler {"type":"auth"}.
+AUTHED_CLIENTS = set()
 interface_deja_connectee = False
 _skip_pc_audio = False  # True quand la commande vient du mobile (le tél gère son propre TTS)
 IS_MUTED = False  # Mute persistant active depuis le frontend
 PENDING_SCREEN_CAPTURES = {}
+
+
+def _clients_diffusion():
+    """Retourne les clients connectes ET authentifies (cibles des broadcasts).
+
+    Les clients loopback sont toujours authentifies a la connexion ; les clients
+    LAN ne le sont qu'apres un {"type":"auth"} valide. On intersecte avec
+    CONNECTED_CLIENTS pour ne jamais viser un socket deja ferme."""
+    return [ws for ws in CONNECTED_CLIENTS if ws in AUTHED_CLIENTS]
 
 def _client_est_local(websocket) -> bool:
     """True si le client WebSocket vient de la machine locale (loopback).
@@ -578,6 +630,10 @@ def _client_est_local(websocket) -> bool:
 async def ws_handler(websocket):
     global interface_deja_connectee
     CONNECTED_CLIENTS.add(websocket)
+    # Les clients loopback (orbe locale, dashboard, jarvis_notify) sont
+    # auto-authentifies : ils tournent sur le PC, aucun token requis.
+    if _client_est_local(websocket):
+        AUTHED_CLIENTS.add(websocket)
     interface_deja_connectee = True
     print(f"[WEB] Interface connectee (Clients actifs: {len(CONNECTED_CLIENTS)})")
     try:
@@ -599,6 +655,43 @@ async def ws_handler(websocket):
                         continue
                     if jarvis_dashboard_api and await jarvis_dashboard_api.traiter_message_dashboard(data, websocket):
                         continue
+
+                # Authentification par token (clients LAN/mobile). Les loopback
+                # sont deja dans AUTHED_CLIENTS ; ce message reste tolere pour eux.
+                if data.get("type") == "auth":
+                    token = data.get("token", "")
+                    # Un client loopback est deja authentifie a la connexion : on
+                    # repond ok=true meme s'il n'a pas envoye de token (sinon la
+                    # mobile ouverte sur le PC se verrouillerait a tort).
+                    ok = bool(
+                        websocket in AUTHED_CLIENTS
+                        or (
+                            jarvis_security is not None
+                            and isinstance(token, str)
+                            and jarvis_security.verifier_token(token)
+                        )
+                    )
+                    if ok:
+                        AUTHED_CLIENTS.add(websocket)
+                        print("[AUTH] Client authentifie.")
+                    else:
+                        print("[AUTH] Token refuse.")
+                    try:
+                        await websocket.send(json.dumps({"action": "auth_result", "ok": ok}))
+                    except Exception:
+                        pass
+                    continue
+
+                # Gate : un client non authentifie (donc LAN non appaire) ne peut
+                # envoyer aucune commande/donnee. On l'invite a s'appairer et on
+                # ignore le message. Les loopback passent toujours (deja authes).
+                if websocket not in AUTHED_CLIENTS:
+                    try:
+                        await websocket.send(json.dumps({"action": "auth_required"}))
+                    except Exception:
+                        pass
+                    continue
+
                 if data.get("type") == "mobile_command":
                     texte = data.get("text", "").strip()
                     if texte:
@@ -682,22 +775,27 @@ async def ws_handler(websocket):
         pass
     finally:
         CONNECTED_CLIENTS.discard(websocket)
+        AUTHED_CLIENTS.discard(websocket)
         print(f"[WEB] Interface deconnectee (Clients actifs: {len(CONNECTED_CLIENTS)})")
 
 async def send_web_state(state):
-    if CONNECTED_CLIENTS:
+    # Diffuse uniquement aux clients authentifies (loopback inclus d'office).
+    cibles = _clients_diffusion()
+    if cibles:
         message = json.dumps({"action": "set_state", "state": state})
-        await asyncio.gather(*[ws.send(message) for ws in CONNECTED_CLIENTS])
+        await asyncio.gather(*[ws.send(message) for ws in cibles], return_exceptions=True)
 
 async def send_web_volume(volume):
-    if CONNECTED_CLIENTS:
+    cibles = _clients_diffusion()
+    if cibles:
         message = json.dumps({"action": "set_volume", "volume": round(volume, 3)})
-        await asyncio.gather(*[ws.send(message) for ws in CONNECTED_CLIENTS], return_exceptions=True)
+        await asyncio.gather(*[ws.send(message) for ws in cibles], return_exceptions=True)
 
 
 async def broadcast_chat(role, text):
     """Envoie un message de chat au frontend pour l'afficher dans la mini-UI."""
-    if not CONNECTED_CLIENTS or not text:
+    cibles = _clients_diffusion()
+    if not cibles or not text:
         return
     payload = json.dumps({
         "action": "chat_message",
@@ -705,21 +803,22 @@ async def broadcast_chat(role, text):
         "text": text,
         "ts": time.strftime("%H:%M:%S"),
     })
-    await asyncio.gather(*[ws.send(payload) for ws in CONNECTED_CLIENTS], return_exceptions=True)
+    await asyncio.gather(*[ws.send(payload) for ws in cibles], return_exceptions=True)
 
 async def request_screen_capture():
     """Demande une capture d'écran au frontend via WebSocket."""
-    if not CONNECTED_CLIENTS:
+    cibles = _clients_diffusion()
+    if not cibles:
         return None
-    
+
     req_id = str(uuid.uuid4())
     loop = asyncio.get_event_loop()
     fut = loop.create_future()
     PENDING_SCREEN_CAPTURES[req_id] = fut
-    
+
     print(f"[VISION] Envoi requete capture ID: {req_id}")
     msg = json.dumps({"action": "request_screen_capture", "id": req_id})
-    await asyncio.gather(*[ws.send(msg) for ws in CONNECTED_CLIENTS])
+    await asyncio.gather(*[ws.send(msg) for ws in cibles], return_exceptions=True)
     
     try:
         # Timeout de 15 secondes car l'utilisateur doit parfois accepter le partage
@@ -1560,10 +1659,11 @@ async def parler(texte):
     # Si la commande vient du mobile, le tél gère lui-même son TTS
     if _skip_pc_audio:
         print(f"[MOBILE] Envoi au mobile : {texte_tts}")
-        if CONNECTED_CLIENTS:
+        cibles = _clients_diffusion()
+        if cibles:
             try:
                 message = json.dumps({"action": "jarvis_response", "text": texte_tts})
-                await asyncio.gather(*[ws.send(message) for ws in CONNECTED_CLIENTS])
+                await asyncio.gather(*[ws.send(message) for ws in cibles], return_exceptions=True)
             except Exception as e:
                 print(f"[MOBILE] Erreur broadcast response : {e}")
         return
