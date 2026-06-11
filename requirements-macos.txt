@@ -26,3 +26,7 @@ websockets>=15.0
 
 # Optionnel : icone de tray. Sur macOS, le mode web direct reste recommande.
 pystray>=0.19
+
+# Optionnel : commandes navigateur pilote ("va sur youtube", "lis-moi la page").
+# Necessite aussi : playwright install chromium
+# playwright>=1.50

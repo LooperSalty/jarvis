@@ -13,7 +13,14 @@ datas = [
     ('mobile', 'mobile'),
 ]
 
-# Inclure assets optionnels seulement s'ils existent
+# Skills auto-decouverts (charges via importlib depuis jarvis_skills/)
+if os.path.isdir(os.path.join(ROOT, 'jarvis_skills')):
+    datas.append(('jarvis_skills', 'jarvis_skills'))
+
+# Inclure assets optionnels seulement s'ils existent.
+# NB : on ne bundle PAS jarvis_profile.json / jarvis_mcp.json (donnees perso :
+# famille, adresse, env locaux) — ils seraient extractibles du binaire. Ces
+# fichiers sont lus/ecrits a cote de l'exe au runtime (cf. _dossier_donnees).
 for opt in ('jarvis_memoire.json', '.env', 'credentials.json'):
     p = os.path.join(ROOT, opt)
     if os.path.exists(p):
@@ -59,6 +66,11 @@ hiddenimports = [
     'PyQt5.QtNetwork',
     'PyQt5.QtPrintSupport',
     'PyQt5.sip',
+]
+hiddenimports += [
+    # Modules racine de l'app de configuration (dashboard)
+    'jarvis_profile',
+    'jarvis_dashboard_api',
 ]
 hiddenimports += collect_submodules('google.genai')
 hiddenimports += collect_submodules('jarvis_actions')

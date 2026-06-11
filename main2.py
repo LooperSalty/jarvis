@@ -490,6 +490,46 @@ except Exception as e:
     print(f"[OPENJARVIS] Module openjarvis_brain desactive : {e}")
     openjarvis_brain = None
 
+try:
+    from jarvis_actions import display_actions
+except Exception as e:
+    print(f"[DISPLAY] Module display_actions desactive : {e}")
+    display_actions = None
+
+try:
+    from jarvis_actions import skills_loader
+    skills_loader.charger_skills()
+except Exception as e:
+    print(f"[SKILLS] Module skills_loader desactive : {e}")
+    skills_loader = None
+
+try:
+    from jarvis_actions import mcp_client
+except Exception as e:
+    print(f"[MCP] Module mcp_client desactive : {e}")
+    mcp_client = None
+
+try:
+    import jarvis_profile
+except Exception as e:
+    print(f"[PROFIL] Module jarvis_profile desactive : {e}")
+    jarvis_profile = None
+
+try:
+    import jarvis_dashboard_api
+    jarvis_dashboard_api.init_api({
+        "charger_memoire": charger_memoire,
+        "ajouter_memoire": ajouter_memoire,
+        "supprimer_memoire": supprimer_memoire,
+        "user_name": lambda: USER_NAME,
+        # OBSIDIAN est defini plus haut au runtime ; globals() evite un NameError
+        # si l'ordre d'initialisation change.
+        "obsidian_actif": lambda: globals().get("OBSIDIAN") is not None,
+    })
+except Exception as e:
+    print(f"[DASHBOARD] Module jarvis_dashboard_api desactive : {e}")
+    jarvis_dashboard_api = None
+
 
 def consigner_echange(role_user_or_model, texte):
     """Note un echange dans Obsidian si dispo."""
@@ -518,6 +558,23 @@ _skip_pc_audio = False  # True quand la commande vient du mobile (le tél gère 
 IS_MUTED = False  # Mute persistant active depuis le frontend
 PENDING_SCREEN_CAPTURES = {}
 
+def _client_est_local(websocket) -> bool:
+    """True si le client WebSocket vient de la machine locale (loopback).
+    Garde-fou pour les messages dash_* (config sensible) : le WS ecoute sur
+    0.0.0.0 sans authentification, on limite donc la config au PC lui-meme."""
+    try:
+        addr = getattr(websocket, "remote_address", None)
+        host = addr[0] if addr else ""
+        # IPv4 loopback (127.0.0.0/8), IPv6 loopback, et forme mappee IPv4.
+        return (
+            host in ("127.0.0.1", "::1", "localhost")
+            or host.startswith("127.")
+            or host in ("::ffff:127.0.0.1",)
+        )
+    except Exception:
+        return False
+
+
 async def ws_handler(websocket):
     global interface_deja_connectee
     CONNECTED_CLIENTS.add(websocket)
@@ -527,6 +584,21 @@ async def ws_handler(websocket):
         async for message in websocket:
             try:
                 data = json.loads(message)
+                # Messages du dashboard de configuration (dash_*) : deleguees au routeur dedie.
+                # SECURITE : le dashboard ecrit le .env, lance des serveurs MCP (process
+                # arbitraires) et expose profil/memoire. Le WS ecoute sur 0.0.0.0 sans auth,
+                # donc on RESTREINT ces messages aux clients loopback (le dashboard tourne sur
+                # le PC). Le mobile utilise mobile_command et n'est pas impacte.
+                if isinstance(data.get("type"), str) and data["type"].startswith("dash_"):
+                    if not _client_est_local(websocket):
+                        print("[DASHBOARD] Message dash_* refuse (client non local).")
+                        await websocket.send(json.dumps({
+                            "action": "dash_error",
+                            "error": "Configuration accessible uniquement depuis le PC local.",
+                        }))
+                        continue
+                    if jarvis_dashboard_api and await jarvis_dashboard_api.traiter_message_dashboard(data, websocket):
+                        continue
                 if data.get("type") == "mobile_command":
                     texte = data.get("text", "").strip()
                     if texte:
@@ -679,6 +751,14 @@ def construire_system_prompt():
         "- Reste poli mais garde une touche de sarcasme affectueux propre à ton personnage.\n\n"
         + CREATOR_INFO
     )
+    # Profil utilisateur enrichi (famille, adresse, habitudes — edite via le dashboard)
+    if jarvis_profile:
+        try:
+            ctx_profil = jarvis_profile.contexte_profil()
+            if ctx_profil:
+                base += "\n\n" + ctx_profil + "\n"
+        except Exception as e:
+            print(f"[PROFIL] Echec contexte profil : {e}")
     base += (
         f"\n\nTu es connecte a Home Assistant, la domotique de {USER_NAME}.\n"
         f"Quand {USER_NAME} parle de lumieres, prises, chauffage, temperature, "
@@ -2376,6 +2456,91 @@ def _send_media_key(vk_code: int, repeat: int = 1):
         print(f"[MEDIA-KEY] Echec vk={hex(vk_code)} : {e}")
 
 
+# Tools MCP exposes a la boucle agent : nom Gemini "safe" -> (serveur, tool)
+_MCP_TOOLS_REGISTRY: dict = {}
+_MCP_TOOL_DECLS: list = []
+# Event loop du serveur WS : les sessions MCP (process, futures, reader) y vivent.
+# La boucle vocale tourne sur un loop jetable different ; on route donc les appels
+# MCP vers ce loop via run_coroutine_threadsafe pour respecter le contrat de mcp_client.
+_WS_LOOP = None
+
+
+async def _appeler_mcp_safe(srv: str, tool: str, args: dict) -> tuple[str, bool]:
+    """Appelle un tool MCP depuis n'importe quel loop, en l'executant toujours
+    sur le loop du serveur WS (ou vivent les sessions MCP)."""
+    if not mcp_client:
+        return "Module MCP indisponible.", False
+    try:
+        courant = asyncio.get_running_loop()
+    except RuntimeError:
+        courant = None
+    # Meme loop que les sessions MCP (cas WS/dashboard) : appel direct.
+    if _WS_LOOP is None or courant is _WS_LOOP:
+        return await mcp_client.appeler_tool(srv, tool, args)
+    # Loop different (cas voix) : on planifie sur le loop WS et on attend le resultat
+    # sans bloquer le loop courant (concurrent.futures.Future via un executor).
+    try:
+        cf = asyncio.run_coroutine_threadsafe(
+            mcp_client.appeler_tool(srv, tool, args), _WS_LOOP
+        )
+        return await asyncio.get_running_loop().run_in_executor(None, cf.result, 35)
+    except Exception as e:
+        return f"Erreur appel MCP cross-loop : {e}", False
+
+
+def _json_schema_vers_gemini(schema: dict):
+    """Convertit un inputSchema MCP (JSON Schema) en types.Schema Gemini.
+    Conversion minimale : objets plats + types simples. OBJECT vide en repli."""
+    from google.genai import types as gtypes
+    type_map = {
+        "string": gtypes.Type.STRING, "number": gtypes.Type.NUMBER,
+        "integer": gtypes.Type.INTEGER, "boolean": gtypes.Type.BOOLEAN,
+        "array": gtypes.Type.ARRAY, "object": gtypes.Type.OBJECT,
+    }
+    try:
+        props = {}
+        for pname, pdef in (schema.get("properties") or {}).items():
+            ptype = type_map.get(str(pdef.get("type", "string")).lower(), gtypes.Type.STRING)
+            kwargs = {"type": ptype, "description": str(pdef.get("description", ""))[:300]}
+            if ptype == gtypes.Type.ARRAY:
+                items_def = pdef.get("items") or {}
+                itype = type_map.get(str(items_def.get("type", "string")).lower(), gtypes.Type.STRING)
+                kwargs["items"] = gtypes.Schema(type=itype)
+            props[pname] = gtypes.Schema(**kwargs)
+        required = [r for r in (schema.get("required") or []) if r in props]
+        return gtypes.Schema(type=gtypes.Type.OBJECT, properties=props, required=required or None)
+    except Exception:
+        return gtypes.Schema(type=gtypes.Type.OBJECT, properties={})
+
+
+async def _init_mcp_tools():
+    """Connecte les serveurs MCP actifs et expose leurs tools a la boucle agent."""
+    global _MCP_TOOL_DECLS
+    if not (mcp_client and jarvis_agent):
+        return
+    try:
+        from google.genai import types as gtypes
+        tools = await mcp_client.lister_tools()
+        decls, registry = [], {}
+        for t in tools:
+            safe = re.sub(r"[^a-zA-Z0-9_]", "_", f"mcp_{t['server']}_{t['name']}")[:60]
+            if safe in registry:
+                continue
+            registry[safe] = (t["server"], t["name"])
+            decls.append(gtypes.FunctionDeclaration(
+                name=safe,
+                description=(t.get("description") or f"Tool MCP {t['name']} ({t['server']})")[:900],
+                parameters=_json_schema_vers_gemini(t.get("input_schema") or {}),
+            ))
+        _MCP_TOOLS_REGISTRY.clear()
+        _MCP_TOOLS_REGISTRY.update(registry)
+        _MCP_TOOL_DECLS = decls
+        if decls:
+            print(f"[MCP] {len(decls)} tools MCP exposes a l'agent.")
+    except Exception as e:
+        print(f"[MCP] Init tools echec : {e}")
+
+
 async def _agent_dispatch(name: str, args: dict) -> str:
     """Mappe les noms de tools (Gemini function calls) -> vraies fonctions Jarvis.
     Retourne une chaine de resultat lisible par l'IA pour son raisonnement."""
@@ -2508,6 +2673,23 @@ async def _agent_dispatch(name: str, args: dict) -> str:
             STOP_PARLER = True
             await send_web_state("idle")
             return "Orbe cachee."
+
+        # --- Affichage visuel (fenetre de contenu) ---
+        if name == "show_content":
+            if not display_actions:
+                return "Module affichage indisponible."
+            rep, ok = display_actions.montrer_contenu(
+                args.get("title", "Jarvis"),
+                args.get("content", ""),
+                args.get("content_type", "texte"),
+            )
+            return rep
+
+        # --- Tools MCP dynamiques (connecteurs externes) ---
+        if name in _MCP_TOOLS_REGISTRY:
+            srv, tool = _MCP_TOOLS_REGISTRY[name]
+            rep, ok = await _appeler_mcp_safe(srv, tool, args)
+            return rep if ok else f"Echec MCP : {rep}"
 
         return f"Tool inconnu : {name}"
     except Exception as e:
@@ -2832,6 +3014,36 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None):
         except Exception as e:
             print(f"[BROWSER] Erreur : {e}")
 
+    # Skills utilisateur (jarvis_skills/) AVANT pc_actions : extensions perso prioritaires.
+    if skills_loader:
+        try:
+            sk_reponse, sk_ok = skills_loader.executer_skills(texte_utilisateur)
+            if sk_reponse is None:
+                sk_reponse, sk_ok = await skills_loader.async_executer_skills(texte_utilisateur)
+            if sk_reponse is not None:
+                print(f"[SKILLS] {sk_reponse}")
+                if mobile_ws:
+                    _skip_pc_audio = True
+                await parler(sk_reponse)
+                _skip_pc_audio = False
+                return
+        except Exception as e:
+            print(f"[SKILLS] Erreur : {e}")
+
+    # Affichage de fichiers/dossiers ("montre le fichier X") avant pc_actions.
+    if display_actions:
+        try:
+            d_reponse, d_ok = display_actions.executer(texte_utilisateur)
+            if d_reponse is not None:
+                print(f"[DISPLAY] {d_reponse}")
+                if mobile_ws:
+                    _skip_pc_audio = True
+                await parler(d_reponse)
+                _skip_pc_audio = False
+                return
+        except Exception as e:
+            print(f"[DISPLAY] Erreur : {e}")
+
     if pc_actions:
         try:
             pc_reponse, pc_ok = pc_actions.executer(texte_utilisateur)
@@ -2915,7 +3127,12 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None):
                 "Termine TOUJOURS par 'respond' avec une phrase courte et naturelle en francais "
                 f"(ex: 'C'est fait, {USER_NAME}.' ou la reponse a une question conversationnelle). "
                 "Si la demande est juste conversationnelle (question generale, blague, info), "
-                "appelle directement 'respond' avec ta reponse."
+                "appelle directement 'respond' avec ta reponse. "
+                f"Utilise show_content pour MONTRER visuellement du contenu a {USER_NAME} "
+                "(listes, tableaux, comparatifs, longs textes, images, liens) dans une fenetre "
+                f"— obligatoire quand {USER_NAME} dit 'montre-moi' ou 'affiche'. "
+                + ("Des tools mcp_* (connecteurs externes configures dans le dashboard) "
+                   "sont aussi disponibles." if _MCP_TOOL_DECLS else "")
             )
             reponse = await jarvis_agent.run_agent(
                 client=client,
@@ -2923,6 +3140,7 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None):
                 system_prompt=sys_prompt,
                 user_text=texte_utilisateur,
                 dispatch=_agent_dispatch,
+                extra_tools=_MCP_TOOL_DECLS or None,
             )
             print(f"[AGENT] Reponse finale : {reponse}")
         except Exception as e:
@@ -3486,8 +3704,14 @@ def start_ia():
     asyncio.set_event_loop(loop)
 
     async def start_ws():
+        global _WS_LOOP
+        _WS_LOOP = asyncio.get_running_loop()
         print("[WEB] Serveur WebSocket demarre sur ws://0.0.0.0:8765")
         print(f"[WEB] Accessible depuis le reseau : ws://{LAN_IP}:8765")
+        # Connecte les serveurs MCP actifs et expose leurs tools a l'agent
+        # (meme event loop que ws_handler : les sessions MCP y vivent).
+        if mcp_client:
+            asyncio.create_task(_init_mcp_tools())
         if claude_bridge:
             async def notif_inactivite(jours):
                 msg = (

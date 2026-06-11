@@ -204,6 +204,31 @@ TOOLS = [
             description="Cache la mini-fenetre orbe de Jarvis (utiliser quand l'utilisateur dit 'cache toi' / 'disparais').",
             parameters=types.Schema(type=types.Type.OBJECT, properties={}),
         ),
+
+        # --- Affichage visuel (fenetre de contenu) ---
+        types.FunctionDeclaration(
+            name="show_content",
+            description=(
+                "MONTRE visuellement du contenu a l'utilisateur dans une fenetre "
+                "(carte sombre style Jarvis ouverte dans le navigateur). A utiliser "
+                "quand l'utilisateur dit 'montre-moi', 'affiche', ou quand la reponse "
+                "est trop longue/visuelle pour etre lue a voix haute (liste, tableau, "
+                "comparatif, recette, itineraire...). content_type: 'texte' (markdown "
+                "leger accepte), 'image' (chemin local), ou 'url' (http/https)."
+            ),
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "title": types.Schema(type=types.Type.STRING, description="Titre court de la fenetre."),
+                    "content": types.Schema(type=types.Type.STRING, description="Le contenu a afficher."),
+                    "content_type": types.Schema(
+                        type=types.Type.STRING,
+                        enum=["texte", "image", "url"],
+                    ),
+                },
+                required=["title", "content"],
+            ),
+        ),
     ]),
 ]
 
@@ -223,6 +248,7 @@ async def run_agent(
     dispatch,
     history: list | None = None,
     max_turns: int = MAX_AGENT_TURNS,
+    extra_tools: list | None = None,
 ) -> str:
     """Lance l'agent IA. Retourne le texte final dit par Jarvis.
 
@@ -233,13 +259,23 @@ async def run_agent(
         user_text: la requete utilisateur
         dispatch: async fn(name: str, args: dict) -> str (resultat tool)
         history: historique optionnel (liste de types.Content)
+        extra_tools: FunctionDeclaration supplementaires (ex: tools MCP),
+            ajoutees dynamiquement aux tools de base
 
     Le tool 'respond' termine la boucle.
     """
     import asyncio
 
+    tools = TOOLS
+    if extra_tools:
+        try:
+            decls = list(TOOLS[0].function_declarations) + list(extra_tools)
+            tools = [types.Tool(function_declarations=decls)]
+        except Exception as e:
+            print(f"[AGENT] extra_tools ignores : {e}")
+
     config = types.GenerateContentConfig(
-        tools=TOOLS,
+        tools=tools,
         system_instruction=system_prompt,
         temperature=0.6,
     )

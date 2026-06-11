@@ -1,0 +1,26 @@
+{
+  "_doc": [
+    "Exemple de configuration MCP pour Jarvis (le JSON n'a pas de commentaires, d'ou cette cle _doc).",
+    "Copie ce fichier en jarvis_mcp.json a la racine du repo, puis adapte les serveurs.",
+    "Format d'un serveur : command (executable), args (liste de chaines), env (variables optionnelles), enabled (bool).",
+    "Sous Windows, 'npx' / 'node' sont resolus automatiquement (.cmd) via shutil.which — pas besoin du chemin complet.",
+    "enabled: false = le serveur est ignore par lister_tools() tant que tu ne l'actives pas (activer_serveur).",
+    "Les cles commencant par _ (comme _doc) sont ignorees par le client."
+  ],
+  "servers": {
+    "filesystem": {
+      "_doc": "Serveur officiel MCP filesystem via npx. L'acces est limite aux dossiers passes en arguments. Necessite Node.js installe.",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:/Users/Dev1/Documents"],
+      "env": {},
+      "enabled": false
+    },
+    "mon-serveur-python": {
+      "_doc": "Exemple de serveur MCP maison ecrit en Python (fictif). Remplace le chemin par ton script ; env permet de lui passer des variables.",
+      "command": "python",
+      "args": ["C:/chemin/vers/mon_serveur_mcp.py"],
+      "env": { "MON_OPTION": "valeur" },
+      "enabled": false
+    }
+  }
+}

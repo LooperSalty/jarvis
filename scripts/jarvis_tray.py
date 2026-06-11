@@ -133,6 +133,14 @@ def open_logs(_icon=None, _item=None) -> None:
             pass
 
 
+def open_dashboard(_icon=None, _item=None) -> None:
+    """Ouvre le dashboard de configuration (page Vite separee)."""
+    if not backend_alive():
+        start_backend()
+        time.sleep(2.5)
+    webbrowser.open(JARVIS_URL.rstrip("/") + "/dashboard.html")
+
+
 def quit_app(icon: pystray.Icon, _item=None) -> None:
     stop_backend()
     icon.stop()
@@ -141,6 +149,7 @@ def quit_app(icon: pystray.Icon, _item=None) -> None:
 def build_menu() -> pystray.Menu:
     return pystray.Menu(
         pystray.MenuItem("Ouvrir l'orbe", open_orb, default=True),
+        pystray.MenuItem("Configuration", open_dashboard),
         pystray.MenuItem("Redemarrer Jarvis", restart_backend),
         pystray.MenuItem("Voir les logs", open_logs),
         pystray.Menu.SEPARATOR,

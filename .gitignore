@@ -14,6 +14,16 @@ jarvis_home_config.py
 jarvis_memoire.json
 jarvis_historique.json
 
+# Profil utilisateur (donnees perso : famille, adresse, habitudes).
+# Modele : jarvis_profile_example.json
+jarvis_profile.json
+
+# Config MCP perso (peut contenir des chemins/env locaux). Modele : jarvis_mcp_example.json
+jarvis_mcp.json
+
+# Etat actif/inactif des skills (pref locale)
+jarvis_skills/skills_config.json
+
 # Logs et artefacts d'execution
 *.log
 *.log.err
@@ -77,3 +87,6 @@ apprendre/prompt_actif.txt
 apprendre/prompt_optimise.txt
 apprendre/lora_jarvis/
 apprendre/_tinyshakespeare.txt
+
+# Artefacts Playwright MCP
+.playwright-mcp/

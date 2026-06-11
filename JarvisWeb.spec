@@ -13,12 +13,19 @@ datas = [
     ('frontend/dist', 'frontend/dist'),
     ('mobile', 'mobile'),
 ]
+# Skills auto-decouverts (charges via importlib depuis jarvis_skills/)
+if os.path.isdir(os.path.join(ROOT, 'jarvis_skills')):
+    datas.append(('jarvis_skills', 'jarvis_skills'))
+# NB : pas de jarvis_profile.json / jarvis_mcp.json ici non plus (donnees perso,
+# lues/ecrites a cote de l'exe au runtime — cf. _dossier_donnees).
 for opt in ('jarvis_memoire.json', '.env', 'credentials.json'):
     p = os.path.join(ROOT, opt)
     if os.path.exists(p):
         datas.append((opt, '.'))
 
 hiddenimports = [
+    'jarvis_profile',
+    'jarvis_dashboard_api',
     'websockets',
     'websockets.legacy',
     'websockets.legacy.server',

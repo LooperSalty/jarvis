@@ -10,14 +10,21 @@ jarvis/
 ├── build_all.bat                                  ← rebuild les 3 .exe + copie a la racine
 ├── main2.py                                       ← gros entry point (backend, WS, voix, IA)
 ├── jarvis_desktop.py / jarvis_web.py              ← entries des 2 modes Jarvis
+├── jarvis_profile.py                              ← profil utilisateur enrichi (famille, adresse, habitudes)
+├── jarvis_dashboard_api.py                        ← routeur WS des messages dash_* (app de configuration)
 ├── Jarvis.spec / JarvisWeb.spec                   ← specs PyInstaller
 ├── jarvis_actions/                                ← package modules d'actions importes par main2
 │   ├── pc_actions.py / dev_actions.py
 │   ├── claude_bridge.py / obsidian_memory.py
+│   ├── display_actions.py                         ← fenetres d'affichage ("montre-moi X"), cross-platform
+│   ├── mcp_client.py                              ← client MCP stdio (connecteurs externes)
+│   ├── skills_loader.py                           ← auto-decouverte des skills jarvis_skills/
+│   └── model_advisor_service.py                   ← specs PC + reco de modeles (vendorise model_advisor)
+├── jarvis_skills/                                 ← skills utilisateur auto-charges (template dans README.md)
 ├── scripts/                                       ← entries secondaires
 │   ├── jarvis_tray.py / jarvis_notify.py / Lancer_Jarvis.bat
 ├── docs/                                          ← placeholders config (VOS_API.txt, ...)
-├── frontend/                                      ← UI Three.js + Vite
+├── frontend/                                      ← UI Three.js + Vite (index.html = orbe, dashboard.html = config)
 ├── mobile/                                        ← interface mobile statique
 └── model_advisor/                                 ← sous-projet recommandeur LLM
 ```
@@ -69,7 +76,7 @@ Pratique depuis hooks, scripts, ou autres process pour piloter Jarvis sans passe
 
 **`main2.py` (2528 lignes) est le point d'entrée monolithique.** Il orchestre :
 
-1. **WebSocket server** sur `ws://0.0.0.0:8765` (`ws_handler`) — multiplexe les clients web (frontend Vite) et mobile. Messages entrants : `mobile_command`, `stop_audio`, `screen_frame`. Messages sortants : `set_state`, `set_volume`, `request_screen_capture`, `jarvis_response`.
+1. **WebSocket server** sur `ws://0.0.0.0:8765` (`ws_handler`) — multiplexe les clients web (frontend Vite), mobile ET le dashboard de configuration. Messages entrants : `mobile_command`, `text_command`, `external_say`, `stop_audio`, `set_mute`, `screen_frame`, `request_history`, `request_conversation(s)`, et tous les `dash_*` (délégués à `jarvis_dashboard_api.traiter_message_dashboard` en premier). Messages sortants : `set_state`, `set_volume`, `chat_message`, `request_screen_capture`, `jarvis_response`, `history`, et les réponses `dash_*`.
 2. **Serveur HTTP** sur `:8080` qui sert `mobile/` (interface mobile statique).
 3. **Auto-launch Vite** : `subprocess.Popen(["npm", "run", "dev"], cwd=frontend_dir)` puis `webbrowser.open("http://localhost:5173")`.
 4. **Boucle voix** (`start_ia` + `ecouter`) : reconnaissance vocale via `speech_recognition`, mot-clé d'activation `"jarvis"`, détection de claps en parallèle.
@@ -113,6 +120,17 @@ Deux mémoires distinctes :
 
 `jarvis_agent.py` est un **scaffold alternatif inutilisé** (extrait de `main2.py` en mini-classe `JarvisAgent`). Ne pas confondre — toute la logique active est dans `main2.py`.
 
+### App de configuration (dashboard)
+
+Page Vite séparée `frontend/dashboard.html` (sources `frontend/src/dashboard/`), accessible sur `http://localhost:5173/dashboard.html`, via le lien ⚙ de l'orbe, ou les entrées "Configuration" des menus tray. 6 sections : Vue d'ensemble (clés API présentes/absentes — jamais les valeurs —, intégrations, nom utilisateur), Profil (famille/adresse/habitudes/routines → injecté dans le system prompt par `jarvis_profile.contexte_profil()`), Mémoire (graphe d3-force sur canvas via `graph.ts` + CRUD), Chat (réutilise `text_command`/`chat_message`), Connecteurs (serveurs MCP + skills), Modèle IA (specs PC + reco Ollama).
+
+- **Protocole** : tout passe par le WS 8765, messages `dash_*` (contrat complet en tête de `jarvis_dashboard_api.py` et `frontend/src/dashboard/ws.ts`).
+- **`jarvis_dashboard_api.py`** : routeur injecté par `init_api(contexte)` depuis main2 (callables mémoire + user_name). Écrit le `.env` ATOMIQUEMENT avec liste blanche de clés (`CLES_GEREES`) ; ne renvoie JAMAIS une valeur de clé au client (booléens uniquement). `restart_required` devient `True` après tout `dash_set_env`.
+- **MCP** (`jarvis_actions/mcp_client.py`) : client stdio JSON-RPC sans dépendance, config `jarvis_mcp.json` (gitignoré, modèle `jarvis_mcp_example.json`). Les tools des serveurs `enabled` sont exposés à la boucle agent Gemini au démarrage (`_init_mcp_tools` dans main2, noms `mcp_<serveur>_<tool>`). Les sessions vivent sur l'event loop du serveur WS — toujours awaiter depuis ce loop.
+- **Skills** (`jarvis_skills/*.py`) : auto-découverts par `skills_loader`, contrat `SKILL = {...}` + `executer(cmd) -> (str|None, bool)` (ou `async_executer`). Branchés dans `traiter_reponse_ia` AVANT `pc_actions`. En mode .exe, un skill peut être déposé à côté du binaire sans rebuild.
+- **Affichage** (`display_actions.py`) : `montrer_contenu(titre, contenu, type)` génère une carte HTML sombre dans `%TEMP%/jarvis_affichage/` et l'ouvre (startfile / `open` / `xdg-open`). Exposé à l'agent Gemini comme tool `show_content` ("montre-moi...").
+- **Modèles** (`model_advisor_service.py`) : copie vendorisée de la base de `model_advisor/model_advisor.py` (commentaire "Synchronise depuis..." — mettre à jour les deux), détection specs cross-platform, reco top 8 + flag `installe` via Ollama `/api/tags`.
+
 ### Modules d'actions (importés par `main2.py`)
 
 Détection locale par mots-clés AVANT tout appel IA — économise des appels Gemini/Ollama :
@@ -146,6 +164,8 @@ GEMINI_API_KEY, YOUTUBE_API_KEY, XAI_API_KEY, HA_URL, HA_TOKEN, SERPAPI_API_KEY,
 **Identité utilisateur** : `jarvis_config.py` expose `USER_NAME`, lu depuis `JARVIS_USER_NAME` (.env, défaut `"Monsieur"`). Importé par `main2.py` et les modules `jarvis_actions/`. Toutes les phrases de Jarvis utilisent `{USER_NAME}` — ne jamais réintroduire de prénom en dur.
 
 **Config Home Assistant perso** : les entités domotique (`PIECES_LUMIERES`, `PIECES_CAPTEURS`, `APPAREILS_BATTERIE`, etc.) sont externalisées dans `jarvis_home_config.py` (**gitignoré**, valeurs réelles) avec repli auto sur `jarvis_home_config_example.py` (générique, versionné). `main2.py` les importe via `try/except ImportError`. Ne jamais committer `jarvis_home_config.py`.
+
+**Données perso gitignorées avec modèle versionné** : `jarvis_profile.json` (famille, adresse, habitudes — modèle `jarvis_profile_example.json`), `jarvis_mcp.json` (modèle `jarvis_mcp_example.json`), `jarvis_skills/skills_config.json` (état actif/inactif des skills). Ne jamais les committer ni mettre de vraies données dans les exemples.
 
 Variables d'env optionnelles :
 - `JARVIS_USER_NAME` — prénom utilisé par Jarvis (défaut `Monsieur`)
