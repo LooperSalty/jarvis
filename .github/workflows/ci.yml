@@ -80,6 +80,14 @@ jobs:
               print("  skills :", [s["nom"] for s in skills_loader.lister_skills()])
           PY
 
+      - name: Installer pytest + deps de test
+        run: pip install pytest numpy psutil
+
+      - name: Tests unitaires (pytest)
+        shell: bash
+        run: |
+          if [ -d tests ]; then python -m pytest -q; else echo 'pas de tests'; fi
+
       - name: "Lint critique (bugs reels - syntaxe, noms indefinis)"
         continue-on-error: true
         run: ruff check --select E9,F63,F7,F82 --exclude apprendre,OpenJarvis-main,build,dist .
