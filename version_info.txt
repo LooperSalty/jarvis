@@ -1,0 +1,35 @@
+# Metadonnees de version Windows pour Jarvis.exe (PyInstaller).
+# Renseigner ces champs aide l'exe a paraitre legitime (un binaire sans aucune
+# metadonnee ni icone est davantage flague par SmartScreen / antivirus).
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(0, 1, 0, 0),
+    prodvers=(0, 1, 0, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0),
+  ),
+  kids=[
+    StringFileInfo(
+      [
+        StringTable(
+          '040c04b0',  # FR, Unicode
+          [
+            StringStruct('CompanyName', 'LooperSalty'),
+            StringStruct('FileDescription', 'J.A.R.V.I.S - Assistant vocal personnel'),
+            StringStruct('FileVersion', '0.1.0.0'),
+            StringStruct('InternalName', 'Jarvis'),
+            StringStruct('LegalCopyright', 'Copyright (c) LooperSalty'),
+            StringStruct('OriginalFilename', 'Jarvis.exe'),
+            StringStruct('ProductName', 'J.A.R.V.I.S'),
+            StringStruct('ProductVersion', '0.1.0.0'),
+          ],
+        )
+      ]
+    ),
+    VarFileInfo([VarStruct('Translation', [0x040c, 1200])]),
+  ],
+)

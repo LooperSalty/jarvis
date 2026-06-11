@@ -71,6 +71,7 @@ ROOT = Path(getattr(sys, "_MEIPASS", str(Path(__file__).parent.resolve())))
 BACKEND_CMD = [sys.executable, "-u", str(ROOT / "main2.py")]
 
 LOG_PATH = Path(tempfile.gettempdir()) / "jarvis_desktop.log"
+ICON_PATH = ROOT / "assets" / "jarvis.ico"
 
 
 def _log(msg: str):
@@ -569,8 +570,20 @@ def _start_ws_thread(bridge: WindowBridge) -> threading.Event:
 # System tray (QSystemTrayIcon)
 # ============================================================
 
+def _app_icon() -> QIcon:
+    """Icone de l'app (assets/jarvis.ico), repli sur l'icone dessinee."""
+    try:
+        if ICON_PATH.exists():
+            ic = QIcon(str(ICON_PATH))
+            if not ic.isNull():
+                return ic
+    except Exception:
+        pass
+    return _make_tray_icon()
+
+
 def _make_tray_icon() -> QIcon:
-    """Petite icone bleue ronde."""
+    """Petite icone bleue ronde (repli si assets/jarvis.ico absent)."""
     pix = QPixmap(64, 64)
     pix.fill(Qt.transparent)
     p = QPainter(pix)
@@ -585,7 +598,7 @@ def _make_tray_icon() -> QIcon:
 
 
 def _setup_tray(app: QApplication, bridge: WindowBridge) -> QSystemTrayIcon:
-    tray = QSystemTrayIcon(_make_tray_icon(), parent=app)
+    tray = QSystemTrayIcon(_app_icon(), parent=app)
     tray.setToolTip("Jarvis")
 
     menu = QMenu()
@@ -637,11 +650,20 @@ def main():
             backend_proc.terminate()
         return
 
+    # AppUserModelID : sans ca, Windows regroupe l'app sous python.exe et n'utilise
+    # pas notre icone dans la barre des taches. A faire avant toute fenetre.
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("LooperSalty.Jarvis")
+    except Exception:
+        pass
+
     # 2) Qt application
     # Empêche Qt de quitter quand la dernière fenêtre se ferme (tray reste actif)
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     app = QApplication(sys.argv if not FROZEN else [])
     app.setQuitOnLastWindowClosed(False)
+    app.setWindowIcon(_app_icon())  # icone barre des taches + toutes les fenetres
 
     bridge = WindowBridge()
 

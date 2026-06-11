@@ -42,15 +42,39 @@ function mount(root: HTMLElement): Cleanup {
   const typing = el("div", "chat-typing hidden", "Jarvis reflechit...");
   wrap.appendChild(typing);
 
+  // Choix du mode de reponse : vocal (TTS local) ou texte seulement.
+  // Persiste dans localStorage, envoye au backend a chaque message (flag vocal).
+  const VOCAL_KEY = "jarvis_chat_vocal";
+  let replyVocal = localStorage.getItem(VOCAL_KEY) !== "0";
+
   const form = el("form", "chat-form") as HTMLFormElement;
   const input = el("input", "input chat-input") as HTMLInputElement;
   input.type = "text";
   input.placeholder = "Ecris a Jarvis... (Entree pour envoyer)";
   input.autocomplete = "off";
   input.spellcheck = false;
+
+  const vocalToggle = button("", "ghost") as HTMLButtonElement;
+  vocalToggle.type = "button";
+  vocalToggle.classList.add("chat-vocal-toggle");
+  function refreshVocalToggle(): void {
+    vocalToggle.textContent = replyVocal ? "🔊 Vocal" : "📝 Texte";
+    vocalToggle.classList.toggle("is-text", !replyVocal);
+    vocalToggle.title = replyVocal
+      ? "Jarvis repond a voix haute. Clique pour passer en texte seulement."
+      : "Jarvis repond en texte seulement. Clique pour reactiver la voix.";
+  }
+  vocalToggle.addEventListener("click", () => {
+    replyVocal = !replyVocal;
+    localStorage.setItem(VOCAL_KEY, replyVocal ? "1" : "0");
+    refreshVocalToggle();
+  });
+  refreshVocalToggle();
+
   const sendBtn = button("Envoyer", "primary");
   sendBtn.type = "submit";
   form.appendChild(input);
+  form.appendChild(vocalToggle);
   form.appendChild(sendBtn);
   wrap.appendChild(form);
 
@@ -105,7 +129,7 @@ function mount(root: HTMLElement): Cleanup {
     e.preventDefault();
     const text = input.value.trim();
     if (!text) return;
-    if (!ws.send({ type: "text_command", text })) {
+    if (!ws.send({ type: "text_command", text, vocal: replyVocal })) {
       showToast("Backend deconnecte.", false);
       return;
     }

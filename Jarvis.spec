@@ -17,6 +17,15 @@ datas = [
 if os.path.isdir(os.path.join(ROOT, 'jarvis_skills')):
     datas.append(('jarvis_skills', 'jarvis_skills'))
 
+# Icone de l'app (fenetres Qt + tray, charges au runtime depuis assets/)
+if os.path.isdir(os.path.join(ROOT, 'assets')):
+    datas.append(('assets', 'assets'))
+
+ICON_PATH = os.path.join(ROOT, 'assets', 'jarvis.ico')
+ICON = ICON_PATH if os.path.exists(ICON_PATH) else None
+VERSION_FILE = os.path.join(ROOT, 'version_info.txt')
+VERSION = VERSION_FILE if os.path.exists(VERSION_FILE) else None
+
 # Inclure assets optionnels seulement s'ils existent.
 # NB : on ne bundle PAS jarvis_profile.json / jarvis_mcp.json (donnees perso :
 # famille, adresse, env locaux) — ils seraient extractibles du binaire. Ces
@@ -136,5 +145,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,             # Mettre le chemin d'un .ico ici si tu en as un
+    icon=ICON,             # assets/jarvis.ico
+    version=VERSION,       # version_info.txt (metadonnees Windows)
 )

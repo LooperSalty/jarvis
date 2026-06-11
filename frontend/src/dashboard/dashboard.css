@@ -557,6 +557,20 @@ select.input { appearance: auto; }
 
 .chat-input { flex: 1; }
 
+/* Bascule de mode de reponse (vocal / texte seulement) */
+.chat-vocal-toggle {
+  white-space: nowrap;
+  min-width: 92px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.chat-vocal-toggle.is-text {
+  color: var(--muted, #8aa);
+  opacity: 0.92;
+}
+
 /* ── Connecteurs (MCP + skills) ─────────────────────────────── */
 
 .mcp-list,

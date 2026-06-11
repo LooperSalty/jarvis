@@ -865,9 +865,12 @@ async def ws_handler(websocket):
                         asyncio.ensure_future(traiter_reponse_ia(texte, mobile_ws=websocket))
                 elif data.get("type") == "text_command":
                     texte = data.get("text", "").strip()
+                    repondre_vocal = bool(data.get("vocal", True))
                     if texte:
-                        print(f"[WEB-TEXT] Commande tapee : {texte}")
-                        asyncio.ensure_future(traiter_reponse_ia(texte))
+                        print(f"[WEB-TEXT] Commande tapee : {texte} (vocal={repondre_vocal})")
+                        asyncio.ensure_future(
+                            traiter_reponse_ia(texte, repondre_vocal=repondre_vocal)
+                        )
                 elif data.get("type") == "external_say":
                     texte = data.get("text", "").strip()
                     if texte:
@@ -3034,8 +3037,15 @@ def _lancer_taches_post_conversation(user_text: str, jarvis_text: str):
         print(f"[POST-CONV] Echec lancement taches de fond : {e}")
 
 
-async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None):
+async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=True):
     global MODE_IRON_MAN, jarvis_actif, dernier_message, _skip_pc_audio, STOP_PARLER
+
+    # Chat "texte seulement" (repondre_vocal=False) : on diffuse le texte aux
+    # clients (chat_message) mais on ne joue PAS l'audio local — meme mecanisme
+    # que le mobile (_skip_pc_audio). Pose le flag des maintenant pour couvrir
+    # aussi les interceptions prioritaires ci-dessous.
+    if not repondre_vocal:
+        _skip_pc_audio = True
 
     # ============================================================
     # INTERCEPTIONS PRIORITAIRES (avant tout le reste)
@@ -3240,8 +3250,9 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None):
         except Exception as e:
             print(f"[SHUFFLE] {e}")
 
-    # Reset du flag audio au début de chaque commande
-    _skip_pc_audio = False
+    # Reset du flag audio au début de chaque commande.
+    # En mode "texte seulement", on conserve le skip pour ne rien vocaliser.
+    _skip_pc_audio = not repondre_vocal
 
     consigner_echange("user", texte_utilisateur)
     await broadcast_chat("user", texte_utilisateur)

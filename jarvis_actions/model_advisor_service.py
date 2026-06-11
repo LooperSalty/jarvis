@@ -418,10 +418,62 @@ def _detecter_gpus(ram_gb: float) -> list[dict]:
     return []
 
 
-def _detecter_cpu() -> str:
-    """Nom du CPU, 'CPU inconnu' en dernier recours."""
+def _cpu_windows() -> str:
+    """Nom commercial du CPU via le registre (ProcessorNameString).
+    platform.processor() renvoie 'Family 6 Model... GenuineIntel' sous Windows,
+    pas le nom commercial — on lit donc le registre directement."""
     try:
-        return platform.processor() or platform.machine() or "CPU inconnu"
+        import winreg
+        cle = r"HARDWARE\DESCRIPTION\System\CentralProcessor\0"
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, cle) as k:
+            nom, _ = winreg.QueryValueEx(k, "ProcessorNameString")
+            if nom:
+                return " ".join(str(nom).split())  # normalise les espaces
+    except Exception:
+        pass
+    return ""
+
+
+def _cpu_linux() -> str:
+    try:
+        with open("/proc/cpuinfo", encoding="utf-8", errors="ignore") as f:
+            for ligne in f:
+                if ligne.lower().startswith("model name"):
+                    return ligne.split(":", 1)[1].strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _cpu_macos() -> str:
+    try:
+        out = subprocess.run(
+            ["sysctl", "-n", "machdep.cpu.brand_string"],
+            capture_output=True, text=True, timeout=3,
+        )
+        return out.stdout.strip()
+    except Exception:
+        return ""
+
+
+def _detecter_cpu() -> str:
+    """Nom commercial du CPU (ex. 'Intel Core i7-13700KF'), cross-platform.
+    'CPU inconnu' en dernier recours."""
+    try:
+        nom = ""
+        if sys.platform == "win32":
+            nom = _cpu_windows()
+        elif sys.platform == "darwin":
+            nom = _cpu_macos()
+        elif sys.platform.startswith("linux"):
+            nom = _cpu_linux()
+        # Repli generique : platform.processor() (utile hors des 3 OS ci-dessus).
+        nom = nom or platform.processor() or platform.machine()
+        # platform.processor() peut renvoyer la chaine 'Family N Model...' brute :
+        # on la rejette au profit d'un libelle plus parlant.
+        if not nom or nom.lower().startswith("family ") or "genuineintel" in nom.lower():
+            return platform.machine() or "CPU inconnu"
+        return nom
     except Exception:
         return "CPU inconnu"
 
