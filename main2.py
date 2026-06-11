@@ -660,14 +660,20 @@ async def ws_handler(websocket):
                 # sont deja dans AUTHED_CLIENTS ; ce message reste tolere pour eux.
                 if data.get("type") == "auth":
                     token = data.get("token", "")
+                    # Un client loopback est deja authentifie a la connexion : on
+                    # repond ok=true meme s'il n'a pas envoye de token (sinon la
+                    # mobile ouverte sur le PC se verrouillerait a tort).
                     ok = bool(
-                        jarvis_security is not None
-                        and isinstance(token, str)
-                        and jarvis_security.verifier_token(token)
+                        websocket in AUTHED_CLIENTS
+                        or (
+                            jarvis_security is not None
+                            and isinstance(token, str)
+                            and jarvis_security.verifier_token(token)
+                        )
                     )
                     if ok:
                         AUTHED_CLIENTS.add(websocket)
-                        print("[AUTH] Client authentifie par token.")
+                        print("[AUTH] Client authentifie.")
                     else:
                         print("[AUTH] Token refuse.")
                     try:
@@ -801,17 +807,18 @@ async def broadcast_chat(role, text):
 
 async def request_screen_capture():
     """Demande une capture d'écran au frontend via WebSocket."""
-    if not CONNECTED_CLIENTS:
+    cibles = _clients_diffusion()
+    if not cibles:
         return None
-    
+
     req_id = str(uuid.uuid4())
     loop = asyncio.get_event_loop()
     fut = loop.create_future()
     PENDING_SCREEN_CAPTURES[req_id] = fut
-    
+
     print(f"[VISION] Envoi requete capture ID: {req_id}")
     msg = json.dumps({"action": "request_screen_capture", "id": req_id})
-    await asyncio.gather(*[ws.send(msg) for ws in CONNECTED_CLIENTS])
+    await asyncio.gather(*[ws.send(msg) for ws in cibles], return_exceptions=True)
     
     try:
         # Timeout de 15 secondes car l'utilisateur doit parfois accepter le partage

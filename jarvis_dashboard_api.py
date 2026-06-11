@@ -312,6 +312,36 @@ def _fusionner_lignes_env(lignes: list[str], updates: dict[str, str]) -> list[st
     return resultat
 
 
+def _purger_cles_env(cles) -> None:
+    """Retire definitivement des cles du fichier .env (ecriture atomique).
+
+    Appele apres avoir place un secret dans keyring : sinon la valeur en clair
+    resterait dans .env et serait rechargee (et prioritaire) par load_dotenv au
+    prochain demarrage, annulant le benefice du coffre securise.
+    """
+    cles = {str(c).strip() for c in cles if str(c).strip()}
+    if not cles or not ENV_PATH.exists():
+        return
+    try:
+        lignes = ENV_PATH.read_text(encoding="utf-8").splitlines()
+        gardees = []
+        retiree = False
+        for ligne in lignes:
+            propre = ligne.strip()
+            if propre and not propre.startswith("#") and "=" in propre:
+                if propre.partition("=")[0].strip() in cles:
+                    retiree = True
+                    continue
+            gardees.append(ligne)
+        if not retiree:
+            return
+        tmp = ENV_PATH.with_name(ENV_PATH.name + ".tmp")
+        tmp.write_text("\n".join(gardees) + "\n", encoding="utf-8")
+        os.replace(tmp, ENV_PATH)
+    except Exception as e:
+        print(f"[DASHBOARD] Purge .env echouee : {e}")
+
+
 def _keyring_disponible() -> bool:
     """True si jarvis_secrets est importe ET expose un backend keyring fonctionnel."""
     if jarvis_secrets is None:
@@ -371,6 +401,9 @@ def _set_env_detail(updates: Any) -> tuple[bool, str | None]:
         erreur = _ecrire_secrets_keyring(vers_keyring)
         if erreur is not None:
             return False, erreur
+        # Le secret est dans keyring : on s'assure qu'aucune copie en clair ne
+        # subsiste dans .env (sinon load_dotenv la repriorise au redemarrage).
+        _purger_cles_env(vers_keyring.keys())
 
     if vers_env:
         try:
@@ -692,6 +725,8 @@ async def _h_migrate_secrets(data: dict) -> dict:
     resultats = resultats if isinstance(resultats, dict) else {}
     # Booleens propres pour le frontend : {NOM: bool}
     resultats = {str(nom): bool(ok) for nom, ok in resultats.items()}
+    # Purge du .env les cles effectivement migrees vers keyring (plus de clair).
+    _purger_cles_env([nom for nom, ok in resultats.items() if ok])
     return {
         "action": "dash_secrets_migrated",
         "ok": True,
