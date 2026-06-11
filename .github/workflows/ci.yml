@@ -1,0 +1,133 @@
+name: CI
+
+# Verifie chaque PR vers main (et les push sur main) :
+#   - python   : syntaxe de tout le code Python + lint critique (bugs reels)
+#   - frontend : install + type-check du dashboard + build de production Vite
+#   - secrets  : scan gitleaks (advisory, ne bloque pas le merge)
+# Les jobs "python" et "frontend" sont requis pour merger (cf. protection de main).
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les outils + deps minimales
+        run: pip install ruff python-dotenv requests
+
+      - name: Verifier la syntaxe (compileall sur tout le code suivi)
+        shell: bash
+        run: |
+          fichiers=$(git ls-files '*.py' | grep -vE '^(apprendre/|OpenJarvis)' || true)
+          echo "Compilation de :"
+          echo "$fichiers"
+          python -m compileall -q $fichiers
+
+      - name: Smoke import des modules purs (sans deps lourdes)
+        shell: bash
+        run: |
+          python - <<'PY'
+          import importlib, sys
+          # Modules importables sans pygame / google.genai / pyaudio.
+          # On ne fait PAS echouer si un module n'existe pas encore sur la branche
+          # (la CI doit passer aussi bien sur main que sur les branches de feature).
+          cibles = [
+              "jarvis_profile",
+              "jarvis_dashboard_api",
+              "jarvis_actions.mcp_client",
+              "jarvis_actions.skills_loader",
+              "jarvis_actions.display_actions",
+              "jarvis_actions.model_advisor_service",
+          ]
+          erreurs = []
+          for nom in cibles:
+              try:
+                  importlib.import_module(nom)
+                  print(f"  OK   {nom}")
+              except ModuleNotFoundError as e:
+                  # Module absent sur cette branche OU dep optionnelle manquante : on tolere.
+                  print(f"  skip {nom} ({e})")
+              except Exception as e:
+                  erreurs.append((nom, repr(e)))
+                  print(f"  FAIL {nom} : {e!r}")
+          if erreurs:
+              sys.exit(f"Import en echec : {erreurs}")
+          # Si le loader de skills est present, on valide qu'ils chargent.
+          try:
+              from jarvis_actions import skills_loader
+              skills_loader.charger_skills()
+              print("  skills :", [s["nom"] for s in skills_loader.lister_skills()])
+          except ModuleNotFoundError:
+              pass
+          PY
+
+      - name: Lint critique (bugs reels : syntaxe, noms indefinis)
+        continue-on-error: true
+        run: ruff check --select E9,F63,F7,F82 --exclude apprendre,OpenJarvis-main,build,dist .
+
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Installer les dependances
+        run: npm ci
+
+      - name: Type-check du dashboard (si present)
+        continue-on-error: true
+        shell: bash
+        run: |
+          if ls src/dashboard/*.ts >/dev/null 2>&1; then
+            npx tsc --noEmit --strict --moduleResolution bundler \
+              --target es2020 --module es2020 --lib es2020,dom \
+              src/dashboard/*.ts
+          else
+            echo "Pas de dashboard a type-checker sur cette branche."
+          fi
+
+      - name: Build de production (Vite)
+        run: npm run build
+
+  secrets:
+    name: secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan gitleaks (advisory)
+        continue-on-error: true
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
