@@ -119,6 +119,13 @@ CLES_GEREES: tuple[str, ...] = (
     "JARVIS_STT_LOCAL",
     "JARVIS_WAKE_LOCAL",
     "JARVIS_BARGE_IN",
+    # Spotify (controle lecture via l'API officielle spotipy)
+    "SPOTIFY_CLIENT_ID",
+    "SPOTIFY_CLIENT_SECRET",
+    # Messagerie : pont Telegram entrant + notifications Discord sortantes
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_CHAT_ID",
+    "DISCORD_WEBHOOK_URL",
 )
 
 # Cles SECRETES parmi CLES_GEREES : stockees dans keyring si dispo (jamais en
@@ -132,9 +139,67 @@ CLES_SECRETES: frozenset[str] = frozenset({
     "YOUTUBE_API_KEY",
     "HA_TOKEN",
     "MEROSS_PASSWORD",
+    # SPOTIFY_CLIENT_ID et TELEGRAM_CHAT_ID ne sont pas des secrets (id public /
+    # identifiant de chat) : ils restent en clair dans le .env.
+    "SPOTIFY_CLIENT_SECRET",
+    "TELEGRAM_BOT_TOKEN",
+    "DISCORD_WEBHOOK_URL",
 })
 
 _PLACEHOLDERS = ("VOTRE_API", "VOTRE_CLE_ICI")
+
+# Catalogue de serveurs MCP preconfigures pour ajout en 1 clic depuis le
+# dashboard. Constante en dur : ces serveurs npx sont les references officielles
+# du Model Context Protocol. Le champ "besoin" (optionnel) signale a l'utilisateur
+# qu'un argument est a editer (chemin, cle...) avant l'ajout. Le frontend
+# reutilise le handler dash_mcp_add existant (name, command, args).
+CATALOGUE_MCP: tuple[dict[str, Any], ...] = (
+    {
+        "nom": "filesystem",
+        "description": "Acces lecture/ecriture aux fichiers d'un dossier autorise.",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:/Users"],
+        "besoin": "Remplace le dernier argument par le dossier a exposer.",
+    },
+    {
+        "nom": "github",
+        "description": "Lecture/ecriture de depots, issues et PR GitHub.",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-github"],
+        "besoin": "Definis GITHUB_PERSONAL_ACCESS_TOKEN dans l'environnement.",
+    },
+    {
+        "nom": "brave-search",
+        "description": "Recherche web via l'API Brave Search.",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+        "besoin": "Definis BRAVE_API_KEY dans l'environnement.",
+    },
+    {
+        "nom": "memory",
+        "description": "Memoire persistante a base de graphe de connaissances.",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-memory"],
+    },
+    {
+        "nom": "sequential-thinking",
+        "description": "Raisonnement etape par etape structure pour les taches complexes.",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+    },
+    {
+        "nom": "fetch",
+        "description": "Recupere et convertit des pages web en texte exploitable.",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-fetch"],
+    },
+    {
+        "nom": "time",
+        "description": "Heure courante et conversions de fuseaux horaires.",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-time"],
+    },
+)
 
 OLLAMA_TAGS_URL = "http://localhost:11434/api/tags"
 OLLAMA_TIMEOUT_S = 1.5
@@ -1051,6 +1116,28 @@ async def _h_mcp_tools(data: dict) -> dict:
     return {"action": "dash_mcp_tools", "name": name, "tools": tools}
 
 
+async def _h_mcp_catalog(data: dict) -> dict:
+    """Renvoie le catalogue de serveurs MCP preconfigures (constante en dur).
+
+    Le frontend affiche chaque entree et reutilise dash_mcp_add pour l'ajout.
+    Les dicts sont recopies (jamais l'objet interne) pour eviter toute mutation
+    accidentelle du catalogue partage.
+    """
+    catalogue: list[dict] = []
+    for entree in CATALOGUE_MCP:
+        item = {
+            "nom": str(entree.get("nom", "")),
+            "description": str(entree.get("description", "")),
+            "command": str(entree.get("command", "")),
+            "args": [str(a) for a in entree.get("args", [])],
+        }
+        besoin = entree.get("besoin")
+        if besoin:
+            item["besoin"] = str(besoin)
+        catalogue.append(item)
+    return {"action": "dash_mcp_catalog", "catalogue": catalogue}
+
+
 # ==========================================
 # HANDLERS — SKILLS
 # ==========================================
@@ -1235,6 +1322,7 @@ _HANDLERS = {
     "dash_mcp_remove": _h_mcp_remove,
     "dash_mcp_toggle": _h_mcp_toggle,
     "dash_mcp_tools": _h_mcp_tools,
+    "dash_mcp_catalog": _h_mcp_catalog,
     "dash_skills_list": _h_skills_list,
     "dash_skill_toggle": _h_skill_toggle,
     "dash_routines_list": _h_routines_list,

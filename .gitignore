@@ -33,6 +33,9 @@ jarvis_triggers.json
 # Sert a authentifier les clients distants (mobile/LAN). Voir jarvis_security.py
 jarvis_ws_token.txt
 
+# Cache du token OAuth Spotify (genere auto par spotipy, non versionne).
+.spotify_cache
+
 # Etat actif/inactif des skills (pref locale)
 jarvis_skills/skills_config.json
 

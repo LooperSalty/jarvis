@@ -541,6 +541,21 @@ except Exception as e:
     print(f"[MEROSS] Module meross desactive : {e}")
     meross = None
 
+# Connecteurs (PR E) : Spotify (API officielle) + bridge Telegram/Discord.
+# Imports tolerants -> None si echec (modules optionnels, libs paresseuses a
+# l'interieur). Sans eux ou sans config (.env), le comportement reste identique.
+try:
+    from jarvis_actions import spotify
+except Exception as e:
+    print(f"[SPOTIFY] Module spotify desactive : {e}")
+    spotify = None
+
+try:
+    from jarvis_actions import messaging_bridge
+except Exception as e:
+    print(f"[MESSAGING] Module messaging_bridge desactive : {e}")
+    messaging_bridge = None
+
 try:
     from jarvis_actions import browser as jarvis_browser
 except Exception as e:
@@ -3440,6 +3455,23 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None):
         except Exception as e:
             print(f"[BROWSER] Erreur : {e}")
 
+    # Spotify AVANT pc_actions (apres meross/browser) : capture "joue X sur
+    # spotify", "pause", "musique suivante", etc. via l'API officielle. Le module
+    # retourne (None, False) s'il n'est pas configure -> la chaine continue (les
+    # touches media globales plus haut restent le fallback sans config Spotify).
+    if spotify:
+        try:
+            sp_reponse, sp_ok = spotify.executer(texte_utilisateur)
+            if sp_reponse is not None:
+                print(f"[SPOTIFY] {sp_reponse}")
+                if mobile_ws:
+                    _skip_pc_audio = True
+                await parler(sp_reponse)
+                _skip_pc_audio = False
+                return
+        except Exception as e:
+            print(f"[SPOTIFY] Erreur : {e}")
+
     # Skills utilisateur (jarvis_skills/) AVANT pc_actions : extensions perso prioritaires.
     if skills_loader:
         try:
@@ -3981,6 +4013,38 @@ async def _executer_commande_proactive(texte: str) -> None:
         print(f"[PROACTIF] Echec exécution commande proactive '{texte}' : {e}")
 
 
+async def _executer_commande_texte(texte: str) -> str:
+    """Exécute une commande texte (ex: depuis Telegram) et RETOURNE la réponse.
+
+    Contrairement à `traiter_reponse_ia` (qui vocalise via TTS PC et ne renvoie
+    rien), cette coroutine fait passer le texte directement par la chaîne IA
+    (`demander_ia`) et renvoie la réponse sous forme de chaîne, SANS TTS PC :
+    le canal distant (Telegram) affiche le texte lui-même, on ne veut pas que le
+    PC se mette à parler à chaque message reçu.
+
+    Injectée dans `messaging_bridge.demarrer_telegram`. Toute erreur est capturée
+    et transformée en message lisible — ne propage jamais d'exception (sinon la
+    boucle de long-polling Telegram mourrait).
+
+    Args:
+        texte: La commande/question telle qu'envoyée par l'utilisateur distant.
+
+    Returns:
+        La réponse textuelle de Jarvis (ou un message d'erreur lisible).
+    """
+    texte = (texte or "").strip()
+    if not texte:
+        return "Message vide."
+    try:
+        reponse = await demander_ia(texte)
+        if not reponse:
+            return "Je n'ai pas de réponse à donner."
+        return str(reponse)
+    except Exception as e:
+        print(f"[MESSAGING] Echec exécution commande texte '{texte}' : {e}")
+        return "Désolé, une erreur est survenue lors du traitement."
+
+
 def nettoyer_commande(texte):
     t = texte.lower().strip()
     for variante in ["jarvis,", "jarvis"]:
@@ -4268,6 +4332,17 @@ def start_ia():
                 print(f"[TRIGGERS] Echec demarrage surveillance : {e}")
         elif triggers:
             print("[TRIGGERS] psutil indisponible : surveillance des triggers desactivee.")
+        # Bridge Telegram (PR E) : long-polling getUpdates. Chaque message texte
+        # passe par _executer_commande_texte (chaine IA, retourne la reponse) et
+        # est renvoye via sendMessage. Tourne dans la meme event loop que le WS.
+        if messaging_bridge and messaging_bridge.telegram_disponible():
+            try:
+                asyncio.create_task(messaging_bridge.demarrer_telegram(_executer_commande_texte))
+                print("[MESSAGING] Bridge Telegram actif (long-polling getUpdates).")
+            except Exception as e:
+                print(f"[MESSAGING] Echec demarrage bridge Telegram : {e}")
+        elif messaging_bridge:
+            print("[MESSAGING] TELEGRAM_BOT_TOKEN absent : bridge Telegram desactive.")
         async with websockets.serve(ws_handler, "0.0.0.0", 8765):
             await asyncio.Future()
 
