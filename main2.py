@@ -557,6 +557,12 @@ except Exception as e:
     messaging_bridge = None
 
 try:
+    from jarvis_actions import openclaw
+except Exception as e:
+    print(f"[OPENCLAW] Module openclaw desactive : {e}")
+    openclaw = None
+
+try:
     from jarvis_actions import browser as jarvis_browser
 except Exception as e:
     print(f"[BROWSER] Module browser desactive : {e}")
@@ -3050,6 +3056,13 @@ async def _agent_dispatch(name: str, args: dict) -> str:
             )
             return rep
 
+        # --- Delegation a OpenClaw (agent IA personnel externe) ---
+        if name == "ask_openclaw":
+            if not openclaw:
+                return "Module OpenClaw indisponible."
+            rep, ok = await openclaw.demander(args.get("message", ""))
+            return rep
+
         # --- Tools MCP dynamiques (connecteurs externes) ---
         if name in _MCP_TOOLS_REGISTRY:
             srv, tool = _MCP_TOOLS_REGISTRY[name]
@@ -3471,6 +3484,23 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None):
                 return
         except Exception as e:
             print(f"[SPOTIFY] Erreur : {e}")
+
+    # OpenClaw AVANT skills/pc_actions : capture "demande a openclaw...",
+    # "envoie a openclaw...", "statut openclaw". Le module retourne (None, False)
+    # si la commande ne le concerne pas ou s'il n'est pas configure -> la chaine
+    # continue normalement.
+    if openclaw:
+        try:
+            oc_reponse, oc_ok = await openclaw.async_executer(texte_utilisateur)
+            if oc_reponse is not None:
+                print(f"[OPENCLAW] {oc_reponse}")
+                if mobile_ws:
+                    _skip_pc_audio = True
+                await parler(oc_reponse)
+                _skip_pc_audio = False
+                return
+        except Exception as e:
+            print(f"[OPENCLAW] Erreur : {e}")
 
     # Skills utilisateur (jarvis_skills/) AVANT pc_actions : extensions perso prioritaires.
     if skills_loader:
