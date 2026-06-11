@@ -4029,11 +4029,16 @@ def ecouter():
                     # poursuit avec le STT + wake par texte (repli universel).
                     print(f"[WAKE] Echec pre-gate (repli STT) : {e}")
 
-            # STT : local (faster-whisper) si flag JARVIS_STT_LOCAL et module dispo,
-            # sinon recognize_google (comportement historique). voice_stt.transcrire
-            # ne leve jamais (repli google interne, "" si rien compris).
-            if voice_stt is not None:
-                texte = voice_stt.transcrire(r, audio, language="fr-FR").lower().strip()
+            # STT : local (faster-whisper) UNIQUEMENT si le flag JARVIS_STT_LOCAL est
+            # actif. Sinon on garde la ligne historique EXACTE (recognize_google qui
+            # LEVE sr.UnknownValueError/sr.RequestError -> geres par les except plus
+            # bas) pour ne RIEN changer au comportement actuel quand le flag est OFF.
+            if STT_LOCAL and voice_stt is not None:
+                texte = (voice_stt.transcrire(r, audio, language="fr-FR") or "").lower().strip()
+                if not texte:
+                    # whisper/repli n'a rien compris : on saute l'iteration comme le
+                    # faisait UnknownValueError (pas de refresh de session, pas d'aval).
+                    continue
             else:
                 texte = r.recognize_google(audio, language="fr-FR").lower().strip()
             print(f"[ENTENDU] {texte}")

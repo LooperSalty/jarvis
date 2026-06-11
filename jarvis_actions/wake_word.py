@@ -36,6 +36,9 @@ _VARIANTES_WAKE: tuple[str, ...] = (
 # Cache du modele openWakeWord : None = pas encore tente, False = indisponible,
 # sinon True (lib + modele chargeables). Evite de re-tenter l'import a chaque appel.
 _OWW_DISPONIBLE: bool | None = None
+# Instance de modele mise en cache par disponible() et reutilisee par
+# creer_detecteur() pour ne pas charger les poids deux fois.
+_OWW_MODELE = None
 
 
 def _flag_actif() -> bool:
@@ -130,11 +133,12 @@ def disponible() -> bool:
         un modele chargeable. Sinon False (le repli texte `mot_present` reste
         toujours disponible).
     """
-    global _OWW_DISPONIBLE
+    global _OWW_DISPONIBLE, _OWW_MODELE
     if not _flag_actif():
         return False
     if _OWW_DISPONIBLE is None:
         modele = _charger_openwakeword()
+        _OWW_MODELE = modele  # mis en cache pour creer_detecteur (charge une fois)
         _OWW_DISPONIBLE = modele is not None
     return bool(_OWW_DISPONIBLE)
 
@@ -210,7 +214,8 @@ def creer_detecteur(seuil: float = 0.5):
     """
     if not disponible():
         return None
-    modele = _charger_openwakeword()
+    # Reutilise le modele charge par disponible() ; ne recharge que si absent.
+    modele = _OWW_MODELE if _OWW_MODELE is not None else _charger_openwakeword()
     if modele is None:
         return None
     try:
