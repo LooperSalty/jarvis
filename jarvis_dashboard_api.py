@@ -77,6 +77,18 @@ except Exception as e:
     print(f"[DASHBOARD] Module jarvis_security indisponible : {e}")
 
 try:
+    from jarvis_actions import routines
+except Exception as e:
+    routines = None
+    print(f"[DASHBOARD] Module routines indisponible : {e}")
+
+try:
+    from jarvis_actions import triggers
+except Exception as e:
+    triggers = None
+    print(f"[DASHBOARD] Module triggers indisponible : {e}")
+
+try:
     import jarvis_secrets
 except Exception as e:
     jarvis_secrets = None
@@ -1079,6 +1091,128 @@ async def _h_skill_toggle(data: dict) -> dict:
 
 
 # ==========================================
+# HANDLERS — AUTOMATISATION (ROUTINES)
+# ==========================================
+# Les modules routines/triggers sont synchrones pour le CRUD (I/O fichier court),
+# on les appelle dans un executor pour ne pas bloquer l'event loop. L'execution
+# d'une routine (executer_maintenant) est deja async et est awaitee directement.
+
+async def _h_routines_list(data: dict) -> dict:
+    if routines is None:
+        return {"action": "dash_routines", "routines": [], "error": "Module routines indisponible"}
+    liste = await _en_executor(routines.charger)
+    return {"action": "dash_routines", "routines": liste if isinstance(liste, list) else []}
+
+
+async def _h_routine_save(data: dict) -> dict:
+    if routines is None:
+        return {"action": "dash_routines", "routines": [], "error": "Module routines indisponible"}
+    routine = data.get("routine")
+    if not isinstance(routine, dict):
+        return {
+            "action": "dash_routines",
+            "routines": await _en_executor(routines.charger),
+            "error": "Champ 'routine' manquant ou invalide",
+        }
+    # maj() fait un upsert (par id) ; un id est genere par valider() si absent.
+    liste = await _en_executor(routines.maj, routine)
+    return {"action": "dash_routines", "routines": liste if isinstance(liste, list) else []}
+
+
+async def _h_routine_delete(data: dict) -> dict:
+    if routines is None:
+        return {"action": "dash_routines", "routines": [], "error": "Module routines indisponible"}
+    routine_id = str(data.get("id", "")).strip()
+    if not routine_id:
+        return {
+            "action": "dash_routines",
+            "routines": await _en_executor(routines.charger),
+            "error": "Identifiant requis",
+        }
+    liste = await _en_executor(routines.supprimer, routine_id)
+    return {"action": "dash_routines", "routines": liste if isinstance(liste, list) else []}
+
+
+async def _h_routine_run(data: dict) -> dict:
+    routine_id = str(data.get("id", "")).strip()
+    if routines is None:
+        return {"action": "dash_routine_run", "id": routine_id, "ok": False}
+    executer = _CTX.get("executer_commande")
+    if not callable(executer):
+        # Pas de wrapper d'execution injecte par main2 : on ne peut rien lancer.
+        return {"action": "dash_routine_run", "id": routine_id, "ok": False}
+    try:
+        ok = bool(await routines.executer_maintenant(routine_id, executer))
+    except Exception as e:
+        print(f"[DASHBOARD] executer_maintenant en echec : {e}")
+        ok = False
+    return {"action": "dash_routine_run", "id": routine_id, "ok": ok}
+
+
+# ==========================================
+# HANDLERS — AUTOMATISATION (TRIGGERS)
+# ==========================================
+def _psutil_disponible() -> bool:
+    """True si le module triggers est present ET psutil importable."""
+    if triggers is None:
+        return False
+    try:
+        return bool(triggers.disponible())
+    except Exception as e:
+        print(f"[DASHBOARD] triggers.disponible en echec : {e}")
+        return False
+
+
+async def _h_triggers_list(data: dict) -> dict:
+    if triggers is None:
+        return {"action": "dash_triggers", "triggers": [], "psutil": False, "error": "Module triggers indisponible"}
+    liste = await _en_executor(triggers.charger)
+    return {
+        "action": "dash_triggers",
+        "triggers": liste if isinstance(liste, list) else [],
+        "psutil": _psutil_disponible(),
+    }
+
+
+async def _h_trigger_save(data: dict) -> dict:
+    if triggers is None:
+        return {"action": "dash_triggers", "triggers": [], "psutil": False, "error": "Module triggers indisponible"}
+    trigger = data.get("trigger")
+    if not isinstance(trigger, dict):
+        return {
+            "action": "dash_triggers",
+            "triggers": await _en_executor(triggers.charger),
+            "psutil": _psutil_disponible(),
+            "error": "Champ 'trigger' manquant ou invalide",
+        }
+    liste = await _en_executor(triggers.maj, trigger)
+    return {
+        "action": "dash_triggers",
+        "triggers": liste if isinstance(liste, list) else [],
+        "psutil": _psutil_disponible(),
+    }
+
+
+async def _h_trigger_delete(data: dict) -> dict:
+    if triggers is None:
+        return {"action": "dash_triggers", "triggers": [], "psutil": False, "error": "Module triggers indisponible"}
+    trigger_id = str(data.get("id", "")).strip()
+    if not trigger_id:
+        return {
+            "action": "dash_triggers",
+            "triggers": await _en_executor(triggers.charger),
+            "psutil": _psutil_disponible(),
+            "error": "Identifiant requis",
+        }
+    liste = await _en_executor(triggers.supprimer, trigger_id)
+    return {
+        "action": "dash_triggers",
+        "triggers": liste if isinstance(liste, list) else [],
+        "psutil": _psutil_disponible(),
+    }
+
+
+# ==========================================
 # DISPATCH
 # ==========================================
 _HANDLERS = {
@@ -1103,6 +1237,13 @@ _HANDLERS = {
     "dash_mcp_tools": _h_mcp_tools,
     "dash_skills_list": _h_skills_list,
     "dash_skill_toggle": _h_skill_toggle,
+    "dash_routines_list": _h_routines_list,
+    "dash_routine_save": _h_routine_save,
+    "dash_routine_delete": _h_routine_delete,
+    "dash_routine_run": _h_routine_run,
+    "dash_triggers_list": _h_triggers_list,
+    "dash_trigger_save": _h_trigger_save,
+    "dash_trigger_delete": _h_trigger_delete,
 }
 
 
