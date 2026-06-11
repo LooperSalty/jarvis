@@ -10,19 +10,28 @@ jarvis/
 ├── build_all.bat                                  ← rebuild les 3 .exe + copie a la racine
 ├── main2.py                                       ← gros entry point (backend, WS, voix, IA)
 ├── jarvis_desktop.py / jarvis_web.py              ← entries des 2 modes Jarvis
+├── jarvis_brain_local.py                          ← cerveau local Ollama (extrait de main2.py)
 ├── jarvis_profile.py                              ← profil utilisateur enrichi (famille, adresse, habitudes)
+├── jarvis_security.py / jarvis_secrets.py         ← validation entrees + gestion clés/.env
+├── jarvis_version.py                              ← version + check_update (release GitHub par tag)
 ├── jarvis_dashboard_api.py                        ← routeur WS des messages dash_* (app de configuration)
 ├── Jarvis.spec / JarvisWeb.spec                   ← specs PyInstaller
 ├── jarvis_actions/                                ← package modules d'actions importes par main2
 │   ├── pc_actions.py / dev_actions.py
 │   ├── claude_bridge.py / obsidian_memory.py
+│   ├── spotify.py / messaging_bridge.py / openclaw.py  ← connecteurs (PR #8/#11)
+│   ├── voice_stt.py / wake_word.py / barge_in.py  ← pipeline voix avancé
+│   ├── routines.py / triggers.py                  ← automatisations (cron + déclencheurs)
+│   ├── memory_rag.py / memory_proactive.py / history_summary.py  ← mémoire RAG + résumé
 │   ├── display_actions.py                         ← fenetres d'affichage ("montre-moi X"), cross-platform
 │   ├── mcp_client.py                              ← client MCP stdio (connecteurs externes)
 │   ├── skills_loader.py                           ← auto-decouverte des skills jarvis_skills/
 │   └── model_advisor_service.py                   ← specs PC + reco de modeles (vendorise model_advisor)
 ├── jarvis_skills/                                 ← skills utilisateur auto-charges (template dans README.md)
+├── tests/                                         ← suite pytest (136 tests, 9 fichiers)
 ├── scripts/                                       ← entries secondaires
 │   ├── jarvis_tray.py / jarvis_notify.py / Lancer_Jarvis.bat
+├── .github/workflows/                             ← ci.yml (python+frontend+secrets) + release.yml (tag → .exe/macOS)
 ├── docs/                                          ← placeholders config (VOS_API.txt, ...)
 ├── frontend/                                      ← UI Three.js + Vite (index.html = orbe, dashboard.html = config)
 ├── mobile/                                        ← interface mobile statique
@@ -51,7 +60,9 @@ cd model_advisor && python -m PyInstaller --onefile --windowed --name ModelAdvis
 cd frontend && npm run dev          # http://localhost:5173
 
 # Dépendances
-python -m pip install -r requirements.txt
+python -m pip install -r requirements.txt          # base
+python -m pip install -r requirements-voice.txt    # pipeline voix avancé (STT/wake word/barge-in)
+python -m pip install -r requirements-macos.txt    # extras macOS
 cd frontend && npm install
 
 # Mode 100% local (force Ollama, ignore les clés cloud)
@@ -61,7 +72,7 @@ ollama serve && ollama pull llama3.2:3b
 
 Le `.bat` `DÉMARRER_JARVIS.bat` (non versionné) contient un chemin Python codé en dur et n'est pas portable — utilise `python main2.py` directement (ou `scripts/Lancer_Jarvis.bat` qui est plus simple).
 
-Pas de tests automatisés, pas de linter configuré. La seule étape de build est `cd frontend && npm run build` (TypeScript + Vite production).
+Tests : suite **pytest** (136 tests dans `tests/`, config `pytest.ini` → `testpaths=tests`). Lancer avec `python -m pytest`. CI GitHub Actions (`.github/workflows/ci.yml`) exécute 3 jobs sur chaque PR : `python` (pytest), `frontend` (build Vite), `secrets` (scan de secrets). Pas de linter configuré. Étape de build frontend : `cd frontend && npm run build` (Vite production).
 
 ### Envoyer une commande depuis l'extérieur
 
@@ -74,7 +85,7 @@ Pratique depuis hooks, scripts, ou autres process pour piloter Jarvis sans passe
 
 ## Architecture
 
-**`main2.py` (2528 lignes) est le point d'entrée monolithique.** Il orchestre :
+**`main2.py` (~4300 lignes) est le point d'entrée monolithique.** Il orchestre :
 
 1. **WebSocket server** sur `ws://0.0.0.0:8765` (`ws_handler`) — multiplexe les clients web (frontend Vite), mobile ET le dashboard de configuration. Messages entrants : `mobile_command`, `text_command`, `external_say`, `stop_audio`, `set_mute`, `screen_frame`, `request_history`, `request_conversation(s)`, et tous les `dash_*` (délégués à `jarvis_dashboard_api.traiter_message_dashboard` en premier). Messages sortants : `set_state`, `set_volume`, `chat_message`, `request_screen_capture`, `jarvis_response`, `history`, et les réponses `dash_*`.
 2. **Serveur HTTP** sur `:8080` qui sert `mobile/` (interface mobile statique).
@@ -149,7 +160,7 @@ Détection locale par mots-clés AVANT tout appel IA — économise des appels G
 - **`orb.ts`** : Three.js, rendu = particules sur courbes Lissajous (28 orbites × 320 points) + sprite lens-flare en croix au centre. API : `setState(state)`, `setVolume(0..1)`, `triggerDemo()`. Couleurs/vitesses changent selon l'état.
 - **`screen_capture.ts`** : `getDisplayMedia` + `ImageCapture.grabFrame` → JPEG base64 envoyé au backend.
 
-Pas de tsconfig, pas de vite.config — Vite utilise les défauts. `package.json` ne dépend que de `three`, `vite`, et `typescript`.
+Pas de tsconfig (le build skip `tsc`), mais `frontend/vite.config.ts` existe (multi-pages : `index.html` orbe + `dashboard.html` config). Dépendances runtime : `three` (orbe) + `d3-force` (graphe mémoire du dashboard) ; devDeps : `typescript`, `vite`, `@types/three`, `@types/d3-force`.
 
 ### Mobile (`mobile/`)
 
