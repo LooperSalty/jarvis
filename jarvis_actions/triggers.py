@@ -30,9 +30,13 @@ import asyncio
 import json
 import os
 import sys
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Awaitable, Callable
+
+# Anti-rebond : delai minimal entre deux declenchements du MEME trigger (s).
+COOLDOWN_S = 60.0
 
 # Type de la callable injectee par main2 (wrapper autour de traiter_reponse_ia).
 ExecuterCommande = Callable[[str], Awaitable[None]]
@@ -279,11 +283,16 @@ async def demarrer_surveillance(
         pas = 5.0
 
     precedents: set[str] | None = None  # None tant que la baseline n'est pas prise
+    dernier_declenchement: dict[str, float] = {}  # id -> monotonic du dernier tir
     print(f"[TRIGGERS] Surveillance demarree (intervalle {pas:g}s).")
 
     while True:
         try:
-            actuels = _processus_actifs(psutil)
+            # process_iter() est SYNCHRONE et peut prendre des dizaines de ms
+            # (handles par process) : on le deporte dans un thread pour ne PAS
+            # figer l'event loop (WS/TTS) toutes les 5s.
+            loop = asyncio.get_running_loop()
+            actuels = await loop.run_in_executor(None, _processus_actifs, psutil)
 
             if precedents is None:
                 # Premiere iteration : baseline, aucun declenchement.
@@ -294,16 +303,26 @@ async def demarrer_surveillance(
                 precedents = actuels
 
                 if apparus or disparus:
+                    maintenant = time.monotonic()
                     for trigger in charger():
                         try:
                             if _trigger_declenche(trigger, apparus, disparus):
+                                # Anti-rebond : un process qui "flappe" ne doit pas
+                                # spammer la commande. Cooldown de COOLDOWN_S par trigger.
+                                tid = str(trigger.get("id", ""))
+                                if maintenant - dernier_declenchement.get(tid, 0.0) < COOLDOWN_S:
+                                    continue
                                 commande = (trigger.get("commande") or "").strip()
                                 if commande:
+                                    dernier_declenchement[tid] = maintenant
                                     print(
                                         f"[TRIGGERS] '{trigger.get('nom')}' "
                                         f"({trigger.get('evenement')}) -> {commande}"
                                     )
-                                    await executer_commande(commande)
+                                    # Tache detachee : on ne bloque pas l'echantillonnage
+                                    # pendant la commande (TTS/IA longs). Serialisation
+                                    # geree cote appelant (executer_commande).
+                                    asyncio.create_task(executer_commande(commande))
                         except Exception as e:
                             print(f"[TRIGGERS] Erreur trigger {trigger.get('id')} : {e}")
         except asyncio.CancelledError:

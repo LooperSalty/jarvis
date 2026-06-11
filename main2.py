@@ -3953,20 +3953,30 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None):
     _skip_pc_audio = False
 
 
+# Verrou de SERIALISATION des commandes proactives : routines et triggers
+# peuvent se chevaucher (une routine parle pendant qu'un trigger se declenche).
+# Or traiter_reponse_ia/parler mutent des globals partages (STOP_PARLER,
+# is_speaking, pygame.mixer...). Une seule commande proactive a la fois evite
+# que deux TTS se telescopent et se corrompent mutuellement.
+_PROACTIF_LOCK = asyncio.Lock()
+
+
 async def _executer_commande_proactive(texte: str) -> None:
     """Exécute une commande déclenchée de façon proactive (routine ou trigger).
 
     Callable injectée dans les modules `routines` et `triggers` : elle se
     comporte comme si l'utilisateur avait prononcé `texte`, en passant par
-    `traiter_reponse_ia`. Encapsulée dans un try/except pour qu'une erreur
-    n'interrompe jamais la boucle du planificateur ou de la surveillance.
+    `traiter_reponse_ia`. Sérialisée par `_PROACTIF_LOCK` (une commande proactive
+    à la fois) et encapsulée dans un try/except pour qu'une erreur n'interrompe
+    jamais la boucle du planificateur ou de la surveillance.
 
     Args:
         texte: La commande à exécuter (ex: "quelle est la météo").
     """
     try:
-        print(f"[PROACTIF] Exécution commande proactive : '{texte}'")
-        await traiter_reponse_ia(texte)
+        async with _PROACTIF_LOCK:
+            print(f"[PROACTIF] Exécution commande proactive : '{texte}'")
+            await traiter_reponse_ia(texte)
     except Exception as e:
         print(f"[PROACTIF] Echec exécution commande proactive '{texte}' : {e}")
 

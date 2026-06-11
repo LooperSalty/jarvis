@@ -255,7 +255,11 @@ async def demarrer_planificateur(
                     if cle in deja_declenchees:
                         continue
                     deja_declenchees.add(cle)
-                    await executer_commande(routine["commande"])
+                    # Tache detachee : on ne bloque PAS la boucle pendant la
+                    # commande (TTS/IA peuvent durer 30-60s). Sinon une minute
+                    # entiere pourrait etre sautee. La serialisation eventuelle
+                    # est geree cote appelant (executer_commande).
+                    asyncio.create_task(executer_commande(routine["commande"]))
                 except Exception as e:
                     print(f"[ROUTINES] Echec execution routine : {e}")
             # Purge la garde des minutes passees pour eviter une croissance infinie.
