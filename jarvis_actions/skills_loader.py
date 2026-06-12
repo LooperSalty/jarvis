@@ -38,20 +38,28 @@ _LOADED = False
 # Localisation du dossier jarvis_skills/
 # ============================================================
 
-def _dossier_skills() -> Path:
-    """Localise le dossier jarvis_skills/ (mode dev ou PyInstaller frozen)."""
+def _dossiers_skills() -> list[Path]:
+    """Dossiers candidats de skills, par ordre de priorite.
+
+    En mode frozen, on scanne LES DEUX emplacements : le dossier modifiable a
+    cote de l'exe (prioritaire en cas de doublon de nom de fichier) ET les
+    skills embarques dans le bundle (--add-data du .spec). Ne retourner que
+    l'un des deux faisait perdre les skills du bundle des qu'un dossier
+    jarvis_skills/ (meme vide) existait a cote de l'exe.
+    """
     if getattr(sys, "frozen", False):
-        # .exe PyInstaller : dossier modifiable a cote de l'exe en priorite
-        cote_exe = Path(sys.executable).parent / "jarvis_skills"
-        if cote_exe.is_dir():
-            return cote_exe
-        # Repli : skills embarques dans le bundle (--add-data dans le .spec)
+        dossiers = [Path(sys.executable).parent / "jarvis_skills"]
         meipass = getattr(sys, "_MEIPASS", None)
         if meipass:
-            return Path(meipass) / "jarvis_skills"
-        return cote_exe
+            dossiers.append(Path(meipass) / "jarvis_skills")
+        return dossiers
     # En dev : skills_loader.py est dans jarvis_actions/, la racine est au-dessus
-    return Path(__file__).resolve().parent.parent / "jarvis_skills"
+    return [Path(__file__).resolve().parent.parent / "jarvis_skills"]
+
+
+def _dossier_skills() -> Path:
+    """Premier dossier candidat (l'emplacement modifiable, pour les ecritures)."""
+    return _dossiers_skills()[0]
 
 
 # ============================================================
@@ -105,19 +113,27 @@ def charger_skills(force_reload: bool = False) -> None:
     if _LOADED and not force_reload:
         return
 
-    dossier = _dossier_skills()
+    candidats = _dossiers_skills()
+    dossiers = [d for d in candidats if d.is_dir()]
     nouveaux: dict[str, dict[str, Any]] = {}
-    if not dossier.is_dir():
-        print(f"[SKILLS] Dossier introuvable : {dossier} (aucun skill charge)")
+    if not dossiers:
+        print(f"[SKILLS] Dossier introuvable : {candidats[0]} (aucun skill charge)")
         _SKILLS, _LOADED = nouveaux, True
         return
 
-    try:
-        fichiers = sorted(p for p in dossier.glob("*.py") if not p.name.startswith("_"))
-    except Exception as e:
-        print(f"[SKILLS] Echec du scan de {dossier} : {e}")
-        _SKILLS, _LOADED = nouveaux, True
-        return
+    # Scan multi-emplacements : en cas de doublon de nom de fichier, le premier
+    # dossier (a cote de l'exe) prime sur le bundle.
+    fichiers: list[Path] = []
+    noms_vus: set[str] = set()
+    for dossier in dossiers:
+        try:
+            for p in sorted(dossier.glob("*.py")):
+                if p.name.startswith("_") or p.name in noms_vus:
+                    continue
+                noms_vus.add(p.name)
+                fichiers.append(p)
+        except Exception as e:
+            print(f"[SKILLS] Echec du scan de {dossier} : {e}")
 
     for fichier in fichiers:
         resultat = _importer_skill(fichier)
@@ -143,15 +159,11 @@ def charger_skills(force_reload: bool = False) -> None:
 
 def _chemin_config() -> Path:
     # En .exe, les skills peuvent venir du bundle (_MEIPASS, temporaire et efface
-    # a la sortie) : on ecrit alors la config a COTE de l'exe pour qu'elle persiste
-    # entre deux lancements. En dev, c'est le meme dossier que les skills.
-    if getattr(sys, "frozen", False):
-        cote_exe = Path(sys.executable).parent / "jarvis_skills"
-        try:
-            cote_exe.mkdir(parents=True, exist_ok=True)
-            return cote_exe / _CONFIG_NOM
-        except Exception:
-            pass
+    # a la sortie) : la config vit a COTE de l'exe pour persister entre deux
+    # lancements. Pas de mkdir ici : creer le dossier en lecture (appelee a
+    # chaque commande) faisait apparaitre un jarvis_skills/ vide a cote de l'exe
+    # qui masquait les skills du bundle au lancement suivant. La creation a lieu
+    # uniquement a l'ecriture (_ecrire_disabled).
     return _dossier_skills() / _CONFIG_NOM
 
 

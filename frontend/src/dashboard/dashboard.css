@@ -418,6 +418,21 @@ select.input { appearance: auto; }
 
 .overview-conn { display: flex; }
 
+.overview-version {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.update-link {
+  color: var(--ok, #6ee7a8);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.update-link:hover { text-decoration: underline; }
+
 /* ── Listes dynamiques (profil) ─────────────────────────────── */
 
 .dyn-list {
