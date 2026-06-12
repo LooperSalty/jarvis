@@ -5,9 +5,21 @@
 # Build : python -m PyInstaller JarvisWeb.spec --clean --noconfirm
 
 from PyInstaller.utils.hooks import collect_submodules
+import importlib.util
 import os
 
 ROOT = os.path.abspath(os.path.dirname(__name__) or '.')
+
+# Garde-fou : refuse de builder si les deps critiques manquent dans CE Python.
+# Sans ca, PyInstaller "reussit" quand meme et produit un .exe qui crashe au
+# lancement (ModuleNotFoundError sur les imports top-level de main2).
+_CRITIQUES = ('websockets', 'edge_tts', 'pygame', 'google.genai', 'openai', 'dotenv')
+_manquants = [m for m in _CRITIQUES if importlib.util.find_spec(m) is None]
+if _manquants:
+    raise SystemExit(
+        f"[JarvisWeb.spec] Deps manquantes dans cet environnement : {_manquants}. "
+        "Lance d'abord : python -m pip install -r requirements.txt"
+    )
 
 datas = [
     ('frontend/dist', 'frontend/dist'),
@@ -16,12 +28,18 @@ datas = [
 # Skills auto-decouverts (charges via importlib depuis jarvis_skills/)
 if os.path.isdir(os.path.join(ROOT, 'jarvis_skills')):
     datas.append(('jarvis_skills', 'jarvis_skills'))
-# NB : pas de jarvis_profile.json / jarvis_mcp.json ici non plus (donnees perso,
-# lues/ecrites a cote de l'exe au runtime — cf. _dossier_donnees).
-for opt in ('jarvis_memoire.json', '.env', 'credentials.json'):
-    p = os.path.join(ROOT, opt)
-    if os.path.exists(p):
-        datas.append((opt, '.'))
+# NB : aucune donnee perso ni secret bundle (.env, credentials.json,
+# jarvis_memoire.json, ...) — extractibles du binaire et figes au build.
+# Tout est lu/ecrit a cote de l'exe au runtime (cf. _dossier_donnees).
+
+ICON_PATH = os.path.join(ROOT, 'assets', 'jarvis.ico')
+ICON = ICON_PATH if os.path.exists(ICON_PATH) else None
+VERSION_FILE = os.path.join(ROOT, 'version_info.txt')
+VERSION = VERSION_FILE if os.path.exists(VERSION_FILE) else None
+
+# Icone de l'app (chargee au runtime pour le tray/fenetres si besoin)
+if os.path.isdir(os.path.join(ROOT, 'assets')):
+    datas.append(('assets', 'assets'))
 
 hiddenimports = [
     'jarvis_profile',
@@ -57,6 +75,17 @@ try:
 except Exception:
     pass  # OpenJarvis non installe au moment du build : skip silencieux
 
+# Voix locale opt-in (requirements-voice.txt) : faster-whisper + openwakeword.
+# Imports lazy + data files indispensables (assets ONNX, modeles openwakeword).
+# Installer requirements-voice.txt AVANT le build pour les embarquer.
+from PyInstaller.utils.hooks import collect_data_files
+for _pkg_voix in ('faster_whisper', 'openwakeword'):
+    try:
+        hiddenimports += collect_submodules(_pkg_voix)
+        datas += collect_data_files(_pkg_voix)
+    except Exception:
+        pass  # lib voix non installee au build : flags voix inactifs dans l'exe
+
 # Pas de Qt ni de pywebview pour cette version legere — juste le backend
 excludes = [
     'tkinter',
@@ -66,6 +95,9 @@ excludes = [
     'PyQt5.QtWebEngineWidgets', 'PyQt5.QtWebEngineCore',
     'jupyter', 'notebook',
     'webview', 'pystray',
+    # Config Home Assistant PERSO (gitignoree) : jamais dans le binaire.
+    # Chargee a cote de l'exe au runtime (sys.path), repli sur l'exemple.
+    'jarvis_home_config',
 ]
 
 block_cipher = None
@@ -108,5 +140,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,
+    icon=ICON,             # assets/jarvis.ico
+    version=VERSION,       # version_info.txt (metadonnees Windows)
 )

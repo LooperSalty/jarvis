@@ -3,9 +3,21 @@
 # Build : python -m PyInstaller Jarvis.spec --clean --noconfirm
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+import importlib.util
 import os
 
 ROOT = os.path.abspath(os.path.dirname(__name__) or '.')
+
+# Garde-fou : refuse de builder si les deps critiques manquent dans CE Python.
+# Sans ca, PyInstaller "reussit" quand meme et produit un .exe qui crashe au
+# lancement (ModuleNotFoundError sur les imports top-level de main2/desktop).
+_CRITIQUES = ('websockets', 'edge_tts', 'pygame', 'PyQt5', 'google.genai', 'openai', 'dotenv')
+_manquants = [m for m in _CRITIQUES if importlib.util.find_spec(m) is None]
+if _manquants:
+    raise SystemExit(
+        f"[Jarvis.spec] Deps manquantes dans cet environnement : {_manquants}. "
+        "Lance d'abord : python -m pip install -r requirements.txt"
+    )
 
 # Tous les fichiers a embarquer dans le .exe
 datas = [
@@ -26,14 +38,11 @@ ICON = ICON_PATH if os.path.exists(ICON_PATH) else None
 VERSION_FILE = os.path.join(ROOT, 'version_info.txt')
 VERSION = VERSION_FILE if os.path.exists(VERSION_FILE) else None
 
-# Inclure assets optionnels seulement s'ils existent.
-# NB : on ne bundle PAS jarvis_profile.json / jarvis_mcp.json (donnees perso :
-# famille, adresse, env locaux) — ils seraient extractibles du binaire. Ces
-# fichiers sont lus/ecrits a cote de l'exe au runtime (cf. _dossier_donnees).
-for opt in ('jarvis_memoire.json', '.env', 'credentials.json'):
-    p = os.path.join(ROOT, opt)
-    if os.path.exists(p):
-        datas.append((opt, '.'))
+# NB : on ne bundle AUCUNE donnee perso ni secret (.env, credentials.json,
+# token.pickle, jarvis_memoire.json, jarvis_profile.json, jarvis_mcp.json) —
+# ils seraient extractibles du binaire et figes a la date du build. Tous ces
+# fichiers sont lus/ecrits a cote de l'exe au runtime (cf. _dossier_donnees
+# dans jarvis_profile / jarvis_security / main2 / jarvis_dashboard_api).
 
 # Qt + WebEngine ressources runtime (DLLs, locales, QtWebEngineProcess.exe, etc.)
 datas += collect_data_files('PyQt5', subdir='Qt5/resources')
@@ -93,6 +102,18 @@ try:
 except Exception:
     pass  # OpenJarvis non installe au moment du build : skip silencieux
 
+# Voix locale opt-in (requirements-voice.txt) : faster-whisper + openwakeword.
+# Imports lazy dans voice_stt.py / wake_word.py + data files indispensables
+# (assets ONNX Silero VAD, modeles openwakeword) sans lesquels les flags
+# JARVIS_STT_LOCAL / JARVIS_WAKE_LOCAL retombent silencieusement sur le cloud.
+# Installer requirements-voice.txt AVANT le build pour les embarquer.
+for _pkg_voix in ('faster_whisper', 'openwakeword'):
+    try:
+        hiddenimports += collect_submodules(_pkg_voix)
+        datas += collect_data_files(_pkg_voix)
+    except Exception:
+        pass  # lib voix non installee au build : flags voix inactifs dans l'exe
+
 # Modules lourds qui ne servent pas a la version desktop — on les exclut pour reduire la taille
 # NB : pas d'exclusion de 'unittest' (pyparsing/httplib2 en dependent transitivement)
 # NB : on a vire pywebview et pystray, remplaces par PyQt5
@@ -103,6 +124,11 @@ excludes = [
     'PyQt6', 'PySide2', 'PySide6',
     'jupyter', 'notebook',
     'webview', 'pystray',  # remplaces par PyQt5
+    # Config Home Assistant PERSO (gitignoree) : ne jamais la geler dans le
+    # binaire (donnees perso extractibles). Au runtime, main2 ajoute le dossier
+    # de l'exe a sys.path : un jarvis_home_config.py pose a cote de l'exe est
+    # charge en priorite, sinon repli sur l'exemple generique embarque.
+    'jarvis_home_config',
 ]
 
 block_cipher = None

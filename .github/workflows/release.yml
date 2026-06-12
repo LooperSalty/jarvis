@@ -1,11 +1,13 @@
 name: Release
 
-# Publie une release GitHub a chaque tag vX.Y.Z (ou manuellement).
-# - build-windows : Jarvis.exe + JarvisWeb.exe via PyInstaller (best-effort)
+# Publie une release GitHub a chaque tag vX.Y.Z.
+# - build-windows : Jarvis.exe + JarvisWeb.exe via PyInstaller (BLOQUANT :
+#   le .exe Windows est le livrable principal, son echec doit se voir)
 # - build-macos   : binaire mode web macOS via PyInstaller (best-effort)
-# - release       : bundle frontend (fiable) + binaires disponibles -> release
-# Les builds de binaires sont en continue-on-error : la release est publiee
-# meme si une plateforme echoue (le bundle frontend est toujours joint).
+# - release       : publie uniquement sur tag, et echoue si le binaire
+#   Windows manque (pas de release silencieusement amputee)
+# Le declenchement manuel (workflow_dispatch) sert de build de test des
+# artefacts : les 3 builds tournent mais rien n'est publie hors tag.
 
 on:
   push:
@@ -44,7 +46,6 @@ jobs:
   build-windows:
     name: build-windows
     runs-on: windows-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -55,15 +56,33 @@ jobs:
           node-version: "20"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - name: Garde version (tag == jarvis_version.VERSION)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, sys
+          from jarvis_version import VERSION
+          tag = os.environ.get("GITHUB_REF_NAME", "").lstrip("vV")
+          if tag != VERSION:
+              sys.exit(
+                  f"Tag v{tag} != VERSION {VERSION} : bumper jarvis_version.py "
+                  "ET version_info.txt avant de taguer (sinon check_update() "
+                  "signalera une fausse mise a jour en boucle)."
+              )
+          print(f"OK : tag v{tag} == VERSION {VERSION}")
+          PY
       - name: Build frontend (embarque dans le .exe)
         working-directory: frontend
         run: |
           npm ci
           npx vite build
       - name: Installer les dependances Python
+        # requirements-windows.txt = deps runtime reelles (PAS requirements.txt,
+        # freeze complet de la machine dev, non installable sur un env vierge).
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements-windows.txt
           pip install pyinstaller
       - name: Build Jarvis.exe + JarvisWeb.exe
         run: |
@@ -76,7 +95,7 @@ jobs:
         with:
           name: windows-build
           path: jarvis-windows.zip
-          if-no-files-found: warn
+          if-no-files-found: error
 
   build-macos:
     name: build-macos
@@ -124,7 +143,10 @@ jobs:
     name: release
     runs-on: ubuntu-latest
     needs: [build-frontend, build-windows, build-macos]
-    if: always()
+    # Publie uniquement sur tag (un dispatch manuel ne fait que builder les
+    # artefacts : softprops/action-gh-release echoue hors tag de toute facon),
+    # meme si build-macos (best-effort) a echoue.
+    if: always() && startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Recuperer les artefacts disponibles
         uses: actions/download-artifact@v4
@@ -133,6 +155,13 @@ jobs:
           merge-multiple: true
       - name: Lister les artefacts
         run: ls -R artefacts || echo "aucun artefact"
+      - name: Verifier la presence du binaire Windows
+        # Le .exe Windows est le livrable principal : pas de release sans lui.
+        run: |
+          test -f artefacts/jarvis-windows.zip || {
+            echo "::error::jarvis-windows.zip absent — release annulee (voir job build-windows)"
+            exit 1
+          }
       - name: Publier la release
         uses: softprops/action-gh-release@v2
         with:
