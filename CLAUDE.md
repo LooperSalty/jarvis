@@ -30,10 +30,13 @@ jarvis/
 │   ├── skills_loader.py                           ← auto-decouverte des skills jarvis_skills/
 │   └── model_advisor_service.py                   ← specs PC + reco de modeles (vendorise model_advisor)
 ├── jarvis_skills/                                 ← skills utilisateur auto-charges (template dans README.md)
-├── tests/                                         ← suite pytest (136 tests, 9 fichiers)
+├── installer/JarvisSetup.iss                      ← installateur Windows (Inno Setup, FR/EN, option Ollama+modele)
+├── tests/                                         ← suite pytest (158 tests, 13 fichiers)
 ├── scripts/                                       ← entries secondaires
 │   ├── jarvis_tray.py / jarvis_notify.py / Lancer_Jarvis.bat
-├── .github/workflows/                             ← ci.yml (python+frontend+secrets) + release.yml (tag → .exe/macOS)
+│   ├── build_installer.bat                        ← compile JarvisSetup-<version>.exe (Inno Setup requis)
+├── .github/workflows/                             ← ci.yml (python+frontend+secrets) + release.yml (tag → .exe/installateur/macOS)
+├── README.md / README.en.md                       ← doc utilisateur FR / EN (garder les deux synchronisees)
 ├── docs/                                          ← placeholders config (VOS_API.txt, ...)
 ├── frontend/                                      ← UI Three.js + Vite (index.html = orbe, dashboard.html = config)
 ├── mobile/                                        ← interface mobile statique
@@ -52,6 +55,10 @@ python scripts/jarvis_tray.py         # alternative system tray (lance main2 en 
 
 # Build des 3 .exe + copie a la racine (necessite frontend/dist deja build)
 build_all.bat
+
+# Installateur Windows JarvisSetup-<version>.exe (apres build_all.bat ;
+# Inno Setup 6 requis : winget install JRSoftware.InnoSetup)
+scripts\build_installer.bat
 
 # Builds individuels
 python -m PyInstaller Jarvis.spec --clean --noconfirm           # Jarvis.exe ~250 MB
@@ -83,7 +90,9 @@ docker compose --profile local up -d --build    # + Ollama embarqué (100% local
 
 Le `.bat` `DÉMARRER_JARVIS.bat` (non versionné) contient un chemin Python codé en dur et n'est pas portable — utilise `python main2.py` directement (ou `scripts/Lancer_Jarvis.bat` qui est plus simple).
 
-Tests : suite **pytest** (136 tests dans `tests/`, config `pytest.ini` → `testpaths=tests`). Lancer avec `python -m pytest`. CI GitHub Actions (`.github/workflows/ci.yml`) exécute 3 jobs sur chaque PR : `python` (pytest), `frontend` (build Vite), `secrets` (scan de secrets). Pas de linter configuré. Étape de build frontend : `cd frontend && npm run build` (Vite production).
+Tests : suite **pytest** (158 tests dans `tests/`, config `pytest.ini` → `testpaths=tests`). Lancer avec `python -m pytest`. CI GitHub Actions (`.github/workflows/ci.yml`) exécute 3 jobs sur chaque PR : `python` (pytest), `frontend` (build Vite), `secrets` (scan de secrets). Pas de linter configuré. Étape de build frontend : `cd frontend && npm run build` (Vite production).
+
+Release (`.github/workflows/release.yml`, déclenchée par tag `vX.Y.Z`) : build frontend + `Jarvis.exe`/`JarvisWeb.exe`/`ModelAdvisor.exe` + **installateur `JarvisSetup-x.y.z.exe`** (Inno Setup, préinstallé sur les runners `windows-latest`, fallback chocolatey) + binaire macOS best-effort. L'installateur est un livrable BLOQUANT (la release échoue s'il manque). Le `.iss` lit la version dans `jarvis_version.py` si `/DAppVersion` n'est pas passé.
 
 ### Envoyer une commande depuis l'extérieur
 
@@ -217,6 +226,9 @@ Sans clé valide, `_cle_valide()` détecte les placeholders `VOTRE_API` / `VOTRE
 - **Mode arrière-plan du `.exe`** : `jarvis_desktop.py` crée la fenêtre webview avec `hidden=True` puis lance un client WS qui écoute `set_state` du backend. État `idle` → cache la fenêtre après 3s ; tout autre état → affiche la mini-fenêtre orbe centrée au-dessus de la barre des tâches. Menu tray "Ouvrir l'interface" affiche la fenêtre complète (980×720, ne se cache pas auto).
 - **Ne pas exclure `unittest` dans `Jarvis.spec`** : `pyparsing` (dépendance transitive de `googleapiclient`) en a besoin sinon crash au démarrage du .exe.
 - **Bundle frontend obligatoire avant build .exe** : `cd frontend && npx vite build` (skip `tsc` car pas de tsconfig.json). Le spec embarque `frontend/dist/`.
+- **Compilation Inno Setup depuis le Bureau** : écrire le Setup.exe directement dans un dossier utilisateur surveillé (Desktop...) fait échouer `EndUpdateResource` (Defender verrouille le binaire). `scripts/build_installer.bat` compile dans `%TEMP%` puis copie vers `installer/output/` — garder ce détour.
+- **`jarvis_config.py` charge lui-même le `.env` persistant** (à côté de l'exe en mode frozen) car il est importé avant le `load_dotenv` de `main2`. Ne pas retirer ce chargement ni réintroduire une dépendance à l'ordre d'import pour `USER_NAME`.
+- **Installation par utilisateur uniquement** : l'installateur cible `{localappdata}\Programs\Jarvis` SANS admin parce que Jarvis écrit ses données à côté du .exe. Ne jamais faire installer dans Program Files sans refondre `_dossier_donnees()` (repli LOCALAPPDATA non implémenté — perte silencieuse de données sinon).
 
 ## Notes utilisateur (héritées de `~/.claude/CLAUDE.md`)
 

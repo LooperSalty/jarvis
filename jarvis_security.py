@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import subprocess
 import sys
 from pathlib import Path
 
@@ -158,3 +159,36 @@ def token_masque() -> str:
     except Exception as e:
         print(f"[SECURITY] Echec masquage token ({e})")
         return ""
+
+
+def restreindre_acces_fichier(path) -> bool:
+    """Restreint un fichier sensible a l'utilisateur courant (best-effort).
+
+    Les fichiers persistes a cote de l'exe (token.pickle OAuth Google, .env)
+    contiennent des secrets en clair : on retire l'heritage ACL et on ne garde
+    que l'utilisateur courant (Windows, icacls) ou on passe en 0600 (POSIX).
+    Retourne True si la restriction a ete appliquee. Jamais d'exception : un
+    echec (droits, icacls absent) ne doit pas casser l'ecriture du fichier.
+    """
+    try:
+        p = Path(path)
+        if not p.exists():
+            return False
+        if os.name == "nt":
+            utilisateur = os.environ.get("USERNAME", "").strip()
+            if not utilisateur:
+                return False
+            resultat = subprocess.run(
+                ["icacls", str(p), "/inheritance:r", "/grant:r", f"{utilisateur}:F"],
+                check=False,
+                capture_output=True,
+                timeout=15,
+                # Pas de flash de console depuis les .exe windowed (console=False)
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            return resultat.returncode == 0
+        os.chmod(p, 0o600)
+        return True
+    except Exception as e:
+        print(f"[SECURITY] Restriction d'acces impossible sur {path} : {e}")
+        return False

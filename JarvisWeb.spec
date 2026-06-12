@@ -84,7 +84,10 @@ for _pkg_voix in ('faster_whisper', 'openwakeword'):
         hiddenimports += collect_submodules(_pkg_voix)
         datas += collect_data_files(_pkg_voix)
     except Exception:
-        pass  # lib voix non installee au build : flags voix inactifs dans l'exe
+        # Visible dans les logs de build (CI incluse) : sans ce warning, le
+        # binaire sort sans voix locale et personne ne le sait.
+        print(f"[JarvisWeb.spec] ATTENTION : {_pkg_voix} non installe — voix locale "
+              "(JARVIS_STT_LOCAL/JARVIS_WAKE_LOCAL) NON embarquee dans le .exe")
 
 # Pas de Qt ni de pywebview pour cette version legere — juste le backend
 excludes = [

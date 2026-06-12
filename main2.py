@@ -1206,8 +1206,17 @@ def get_google_creds():
                 return None
             flow  = InstalledAppFlow.from_client_secrets_file(str(_GOOGLE_CREDENTIALS_PATH), SCOPES)
             creds = flow.run_local_server(port=0)
-        with open(_GOOGLE_TOKEN_PATH, "wb") as f:
-            pickle.dump(creds, f)
+        # Ecriture best-effort : un dossier non inscriptible (exe copie dans
+        # Program Files...) ne doit pas casser la session courante — au pire,
+        # re-OAuth au prochain lancement. Le token contient des secrets OAuth
+        # longue duree : ACL restreinte a l'utilisateur courant apres ecriture.
+        try:
+            with open(_GOOGLE_TOKEN_PATH, "wb") as f:
+                pickle.dump(creds, f)
+            if jarvis_security is not None:
+                jarvis_security.restreindre_acces_fichier(_GOOGLE_TOKEN_PATH)
+        except Exception as e:
+            print(f"[GOOGLE] Ecriture de token.pickle impossible ({e}) — re-autorisation requise au prochain lancement.")
     return creds
 
 def get_docs_service():
@@ -3134,11 +3143,18 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=T
             if await asyncio.to_thread(spotify.disponible):
                 sp_reponse, sp_ok = await asyncio.to_thread(spotify.executer, texte_utilisateur)
                 if sp_reponse is not None:
-                    print(f"[SPOTIFY] {sp_reponse}")
-                    if mobile_ws:
-                        _skip_pc_audio = True
-                    await _parler_et_restaurer(sp_reponse)
-                    return
+                    if not sp_ok and "spotify" not in txt_l:
+                        # Echec API sur commande generique ("pause", "suivant"...
+                        # ex. NO_ACTIVE_DEVICE alors que l'utilisateur regarde une
+                        # video locale) : on ne consomme PAS la commande, les
+                        # touches media ci-dessous restent le repli universel.
+                        print(f"[SPOTIFY] Echec ({sp_reponse}) — repli touches media")
+                    else:
+                        print(f"[SPOTIFY] {sp_reponse}")
+                        if mobile_ws:
+                            _skip_pc_audio = True
+                        await _parler_et_restaurer(sp_reponse)
+                        return
         except Exception as e:
             print(f"[SPOTIFY] Erreur : {e}")
 
