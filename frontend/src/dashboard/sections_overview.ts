@@ -100,6 +100,17 @@ function mount(root: HTMLElement): Cleanup {
   connRow.appendChild(connDot);
   backend.body.appendChild(connRow);
 
+  // Version installee + lien vers la release si une mise a jour existe
+  // (renseignes par dash_overview : champs version / update).
+  const versionRow = el("div", "overview-version");
+  const versionLabel = el("span", "panel-note", "");
+  versionRow.appendChild(versionLabel);
+  const updateLink = el("a", "update-link hidden", "");
+  updateLink.target = "_blank";
+  updateLink.rel = "noopener noreferrer";
+  versionRow.appendChild(updateLink);
+  backend.body.appendChild(versionRow);
+
   const nameInput = textInput("Monsieur", "");
   const nameBtn = button("Enregistrer", "primary");
   const nameRow = el("div", "form-row");
@@ -332,12 +343,29 @@ function mount(root: HTMLElement): Cleanup {
     if (previous && keys.includes(previous)) keySelect.value = previous;
   }
 
+  /** Affiche "Jarvis vX.Y.Z" et le lien de telechargement si plus recent. */
+  function renderVersion(msg: ws.WsMessage): void {
+    const version = asString(msg.version);
+    versionLabel.textContent = version ? `Jarvis v${version}` : "";
+    const update = asRecord(msg.update);
+    const url = asString(update.url);
+    if (asBool(update.disponible) && url) {
+      const distante = asString(update.version_distante, "nouvelle version");
+      updateLink.textContent = `Mise a jour ${distante} disponible →`;
+      updateLink.href = url;
+      updateLink.classList.remove("hidden");
+    } else {
+      updateLink.classList.add("hidden");
+    }
+  }
+
   function renderOverview(msg: ws.WsMessage): void {
     nameInput.value = asString(msg.user_name, nameInput.value);
     renderIntegrations(asRecord(msg.integrations));
     renderVoix(asRecord(msg.voix));
     renderEnvKeys(asRecord(msg.env_keys));
     renderKeyring(asBool(msg.keyring));
+    renderVersion(msg);
     banner.classList.toggle("hidden", !asBool(msg.restart_required));
   }
 

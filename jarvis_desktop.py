@@ -32,6 +32,7 @@ import sys
 import tempfile
 import threading
 import time
+import webbrowser
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, QUrl, pyqtSignal, QObject, QTimer, QPointF, QRect
@@ -160,6 +161,9 @@ class WindowBridge(QObject):
     show_dashboard_signal = pyqtSignal()
     schedule_hide_signal = pyqtSignal()
     quit_signal = pyqtSignal()
+    # Notification tray (titre, corps) — emise depuis n'importe quel thread,
+    # affichee sur le thread Qt (showMessage n'est pas thread-safe).
+    notify_signal = pyqtSignal(str, str)
 
 
 # ============================================================
@@ -597,6 +601,34 @@ def _make_tray_icon() -> QIcon:
     return QIcon(pix)
 
 
+def _verifier_maj(bridge: WindowBridge):
+    """Verifie en arriere-plan si une release plus recente existe sur GitHub.
+
+    Resultat notifie via le tray (signal -> thread Qt). Si une mise a jour est
+    disponible, ouvre la page de la release dans le navigateur.
+    """
+    def worker():
+        try:
+            import jarvis_version
+            info = jarvis_version.check_update()
+        except Exception as e:
+            bridge.notify_signal.emit("Jarvis", f"Verification impossible : {e}")
+            return
+        if info.get("disponible"):
+            version = info.get("version_distante") or "?"
+            bridge.notify_signal.emit(
+                "Jarvis", f"Mise a jour {version} disponible — ouverture de la page."
+            )
+            if info.get("url"):
+                webbrowser.open(info["url"])
+        elif info.get("erreur"):
+            bridge.notify_signal.emit("Jarvis", f"Verification impossible : {info['erreur']}")
+        else:
+            bridge.notify_signal.emit("Jarvis", f"Jarvis {info.get('version_locale')} est a jour.")
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
 def _setup_tray(app: QApplication, bridge: WindowBridge) -> QSystemTrayIcon:
     tray = QSystemTrayIcon(_app_icon(), parent=app)
     tray.setToolTip("Jarvis")
@@ -604,21 +636,29 @@ def _setup_tray(app: QApplication, bridge: WindowBridge) -> QSystemTrayIcon:
     menu = QMenu()
     open_act = QAction("Ouvrir l'interface", menu)
     config_act = QAction("Configuration", menu)
+    update_act = QAction("Verifier les mises a jour", menu)
     hide_act = QAction("Cacher", menu)
     quit_act = QAction("Quitter", menu)
 
     open_act.triggered.connect(bridge.show_full_signal.emit)
     # Configurateur : fenetre native dediee (plus de navigateur systeme).
     config_act.triggered.connect(bridge.show_dashboard_signal.emit)
+    update_act.triggered.connect(lambda: _verifier_maj(bridge))
     hide_act.triggered.connect(bridge.schedule_hide_signal.emit)
     quit_act.triggered.connect(bridge.quit_signal.emit)
 
     menu.addAction(open_act)
     menu.addAction(config_act)
+    menu.addAction(update_act)
     menu.addAction(hide_act)
     menu.addSeparator()
     menu.addAction(quit_act)
     tray.setContextMenu(menu)
+
+    # Notifications venant d'autres threads (ex. verification de mise a jour).
+    bridge.notify_signal.connect(
+        lambda titre, corps: tray.showMessage(titre, corps, QSystemTrayIcon.Information, 8000)
+    )
 
     # Click gauche -> ouvrir interface
     def on_activated(reason):

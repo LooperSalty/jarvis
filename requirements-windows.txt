@@ -1,0 +1,60 @@
+# Dependances Windows pour builder ET lancer Jarvis (desktop + web).
+#
+# IMPORTANT : ne PAS utiliser requirements.txt pour une installation propre —
+# c'est un `pip freeze` complet de la machine de dev qui contient des outils
+# sans rapport (aider-chat, kimi-cli, blender-mcp...) dont les pins exacts sont
+# en conflit entre eux : `pip install -r requirements.txt` sur un environnement
+# vierge echoue en ResolutionImpossible. Ce fichier ne garde que les
+# dependances runtime reelles de Jarvis (meme philosophie que
+# requirements-macos.txt et requirements-docker.txt).
+#
+# Utilise par .github/workflows/release.yml (job build-windows) et recommande
+# en local avant `build_all.bat` :
+#   python -m pip install -r requirements-windows.txt
+#
+# Pour la voix locale opt-in (STT/wake word), installer EN PLUS
+# requirements-voice.txt AVANT le build pour que les flags JARVIS_STT_LOCAL /
+# JARVIS_WAKE_LOCAL fonctionnent dans le .exe.
+
+# --- Coeur backend (WebSocket + .env + HTTP) ---
+websockets>=15.0
+python-dotenv>=1.0
+requests>=2.31
+
+# --- Cerveau IA + TTS ---
+google-genai>=1.0
+openai>=2.0
+edge-tts>=7.2,<8
+
+# --- Google APIs (Gmail/Docs/Drive/Calendar/Sheets, optionnel via OAuth) ---
+google-api-python-client>=2.0
+google-auth>=2.0
+google-auth-oauthlib>=1.0
+google-auth-httplib2>=0.2
+
+# --- Audio / voix (PC) ---
+pygame>=2.6
+SpeechRecognition>=3.10
+PyAudio>=0.2.14
+
+# --- GUI desktop (Jarvis.exe : fenetres Qt + tray + orbe) ---
+PyQt5>=5.15.10
+PyQtWebEngine>=5.15.6
+pywin32>=306
+
+# --- Controle PC (souris/clavier/fenetres/captures) ---
+pyautogui>=0.9.54
+PyGetWindow>=0.0.9
+keyboard>=0.13
+pyperclip>=1.9
+pillow>=10.0
+numpy>=1.26
+
+# --- Secrets / securite ---
+keyring>=24
+
+# --- Connecteurs & proactivite (modules optionnels, degrades si absents) ---
+meross_iot>=0.4.10   # prises Wi-Fi Meross
+spotipy>=2.23        # Spotify API
+psutil>=5.9          # triggers contextuels
+playwright>=1.50     # navigateur pilote (necessite : playwright install chromium)

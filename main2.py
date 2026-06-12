@@ -5,6 +5,7 @@ import google.genai as genai
 from google.genai import types
 import edge_tts
 import os
+import sys
 
 # Imports audio/GUI tolerants : en conteneur (Docker, mode serveur headless)
 # il n'y a ni micro, ni haut-parleur, ni display. Ces libs crashent a l'import
@@ -59,7 +60,28 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from jarvis_config import USER_NAME
 
-# Chargement des variables d'environnement
+# Dossier des donnees persistantes : a cote de l'exe en mode PyInstaller
+# (le cwd est alors sys._MEIPASS, un dossier temporaire efface a la sortie),
+# sinon racine du repo. Meme pattern que jarvis_profile._dossier_donnees.
+def _dossier_donnees() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+DOSSIER_DONNEES = _dossier_donnees()
+
+# En mode .exe, les fichiers perso deposes a cote du binaire (jarvis_home_config.py,
+# skills...) doivent etre importables : le dossier de l'exe passe en tete de
+# sys.path (il prime sur les modules generiques embarques dans le bundle).
+if getattr(sys, "frozen", False) and str(DOSSIER_DONNEES) not in sys.path:
+    sys.path.insert(0, str(DOSSIER_DONNEES))
+
+# Chargement des variables d'environnement. En mode .exe, le .env persistant
+# vit a cote du binaire : on le charge en premier (load_dotenv n'ecrase pas
+# une cle deja chargee, le premier lu gagne).
+if getattr(sys, "frozen", False):
+    load_dotenv(DOSSIER_DONNEES / ".env")
 load_dotenv()
 
 # Mode serveur headless (Docker / VM sans peripheriques) : desactive la boucle
@@ -370,8 +392,10 @@ def chercher_fichier(nom, chemin=None):
 # ==========================================
 # MEMOIRE PERSISTANTE
 # ==========================================
-MEMOIRE_FILE = "jarvis_memoire.json"
-HISTORIQUE_FILE = "jarvis_historique.json"
+# Ancres sur DOSSIER_DONNEES : en mode .exe le cwd est sys._MEIPASS (temporaire),
+# un chemin relatif y perdrait memoire et historique a chaque fermeture.
+MEMOIRE_FILE = str(DOSSIER_DONNEES / "jarvis_memoire.json")
+HISTORIQUE_FILE = str(DOSSIER_DONNEES / "jarvis_historique.json")
 
 # --- Pont Obsidian (optionnel) ---
 try:
@@ -1161,21 +1185,28 @@ SCOPES = [
     "https://www.googleapis.com/auth/calendar",
 ]
 
+# Chemins persistants des credentials Google : en mode .exe, le cwd est
+# sys._MEIPASS (temporaire) — ecrire token.pickle dedans forcerait un
+# re-OAuth a chaque lancement. On lit/ecrit a cote de l'exe a la place.
+_GOOGLE_TOKEN_PATH = DOSSIER_DONNEES / "token.pickle"
+_GOOGLE_CREDENTIALS_PATH = DOSSIER_DONNEES / "credentials.json"
+
+
 def get_google_creds():
     creds = None
-    if os.path.exists("token.pickle"):
-        with open("token.pickle", "rb") as f:
+    if os.path.exists(_GOOGLE_TOKEN_PATH):
+        with open(_GOOGLE_TOKEN_PATH, "rb") as f:
             creds = pickle.load(f)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            if not os.path.exists("credentials.json"):
+            if not os.path.exists(_GOOGLE_CREDENTIALS_PATH):
                 print("[GOOGLE] Pas de credentials.json - fonctions Google desactivees.")
                 return None
-            flow  = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
+            flow  = InstalledAppFlow.from_client_secrets_file(str(_GOOGLE_CREDENTIALS_PATH), SCOPES)
             creds = flow.run_local_server(port=0)
-        with open("token.pickle", "wb") as f:
+        with open(_GOOGLE_TOKEN_PATH, "wb") as f:
             pickle.dump(creds, f)
     return creds
 
@@ -3043,9 +3074,20 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=T
     # Chat "texte seulement" (repondre_vocal=False) : on diffuse le texte aux
     # clients (chat_message) mais on ne joue PAS l'audio local — meme mecanisme
     # que le mobile (_skip_pc_audio). Pose le flag des maintenant pour couvrir
-    # aussi les interceptions prioritaires ci-dessous.
-    if not repondre_vocal:
-        _skip_pc_audio = True
+    # aussi les interceptions prioritaires ci-dessous. Affectation INCONDITIONNELLE :
+    # chaque commande repart d'une base saine, sinon le True d'une commande texte
+    # precedente fuit et rend muette la commande vocale suivante.
+    _skip_pc_audio = not repondre_vocal
+
+    async def _parler_et_restaurer(msg: str):
+        """parler() pour les interceptions a retour immediat : restaure le flag
+        audio apres coup, pour ne pas laisser un skip fuiter vers les annonces
+        proactives (routines/triggers) emises entre deux commandes."""
+        global _skip_pc_audio
+        try:
+            await parler(msg)
+        finally:
+            _skip_pc_audio = False
 
     # ============================================================
     # INTERCEPTIONS PRIORITAIRES (avant tout le reste)
@@ -3055,7 +3097,7 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=T
     # 1) "stop la musique / video" -> PLAY/PAUSE media key globale (pas de focus requis)
     if re.search(r"\b(stop|arr[êe]te|coupe|pause)\b.*\b(musique|vid[ée]o|playlist|chanson|son|lecture)\b", txt_l):
         _send_media_key(0xB3)  # VK_MEDIA_PLAY_PAUSE — marche meme sans focus
-        await parler("Pause.")
+        await _parler_et_restaurer("Pause.")
         return
 
     # 2) "stop" / "tais-toi" / "silence" tout seul -> interrompt Jarvis immediatement
@@ -3063,6 +3105,7 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=T
         STOP_PARLER = True
         print(f"[STOP] Interruption demandee : '{txt_l}'")
         await send_web_state("idle")
+        _skip_pc_audio = False  # pas de parler() ici : restaure la base avant de sortir
         return
 
     # 2bis) "cache toi" / "disparais" / "ferme l'orbe" -> cache la mini-fenetre
@@ -3076,12 +3119,33 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=T
         STOP_PARLER = True
         print(f"[CACHE] Demande de cacher l'orbe : '{txt_l}'")
         await send_web_state("idle")
+        _skip_pc_audio = False  # pas de parler() ici : restaure la base avant de sortir
         return
+
+    # 2ter) Spotify API (si configure) AVANT les touches media : pause/suivant/
+    # precedent/volume controlent alors le device Spotify ACTIF via l'API
+    # officielle (y compris telephone/enceinte), pas seulement le PC. Place
+    # APRES les sections stop/interruption (le "stop" qui coupe Jarvis garde la
+    # priorite) et execute dans un thread (spotipy fait des appels HTTP
+    # bloquants : dans l'event loop WS, ils gelaient tout le backend). Sans
+    # config, disponible() est False et les touches media restent le defaut.
+    if spotify is not None:
+        try:
+            if await asyncio.to_thread(spotify.disponible):
+                sp_reponse, sp_ok = await asyncio.to_thread(spotify.executer, texte_utilisateur)
+                if sp_reponse is not None:
+                    print(f"[SPOTIFY] {sp_reponse}")
+                    if mobile_ws:
+                        _skip_pc_audio = True
+                    await _parler_et_restaurer(sp_reponse)
+                    return
+        except Exception as e:
+            print(f"[SPOTIFY] Erreur : {e}")
 
     # 3) "pause" / "met pause" -> VK_MEDIA_PLAY_PAUSE (toggle global, pas de focus requis)
     if re.search(r"\b(met[s]?\s+(?:la\s+|en\s+)?pause|pause)\b", txt_l):
         _send_media_key(0xB3)
-        await parler("Pause.")
+        await _parler_et_restaurer("Pause.")
         return
 
     # 4) "play" / "lecture" / "reprend" -> VK_MEDIA_PLAY_PAUSE (toggle global)
@@ -3089,7 +3153,7 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=T
     # vers la session media active).
     if re.search(r"\b(play|lecture|reprend(?:s|re)?|relance\s+(?:la\s+)?(?:vid[ée]o|musique))\b", txt_l):
         _send_media_key(0xB3)
-        await parler("Lecture.")
+        await _parler_et_restaurer("Lecture.")
         return
 
     # 4bis) "musique suivante" / "next" / "passe a la suivante" / "musique d'apres"
@@ -3102,7 +3166,7 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=T
         txt_l,
     ):
         _send_media_key(0xB0)  # VK_MEDIA_NEXT_TRACK
-        await parler("Musique suivante.")
+        await _parler_et_restaurer("Musique suivante.")
         return
 
     # 4ter) "musique precedente" / "previous" / "musique d'avant" / "retour"
@@ -3115,7 +3179,7 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=T
         txt_l,
     ):
         _send_media_key(0xB1)  # VK_MEDIA_PREV_TRACK
-        await parler("Musique precedente.")
+        await _parler_et_restaurer("Musique precedente.")
         return
 
     # 4q) VOLUME UP — "monte/augmente le volume", "plus fort", "volume max"
@@ -3130,7 +3194,7 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=T
         # Sinon 5 presses (~10%)
         n = 25 if re.search(r"max|fond|maximum", txt_l) else 5
         _send_media_key(0xAF, repeat=n)  # VK_VOLUME_UP
-        await parler("Volume monte.")
+        await _parler_et_restaurer("Volume monte.")
         return
 
     # 4r) VOLUME DOWN — "baisse/diminue le volume", "moins fort", "volume zero"
@@ -3143,7 +3207,7 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=T
     ):
         n = 25 if re.search(r"min|zero|minimum", txt_l) else 5
         _send_media_key(0xAE, repeat=n)  # VK_VOLUME_DOWN
-        await parler("Volume baisse.")
+        await _parler_et_restaurer("Volume baisse.")
         return
 
     # 4s) MUTE — "coupe le son", "mute", "rends le son" (toggle mute)
@@ -3153,7 +3217,9 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=T
         txt_l,
     ):
         _send_media_key(0xAD)  # VK_VOLUME_MUTE (toggle)
-        await parler("Son coupe." if re.search(r"coupe|mute|sourdine", txt_l) else "Son retabli.")
+        await _parler_et_restaurer(
+            "Son coupe." if re.search(r"coupe|mute|sourdine", txt_l) else "Son retabli."
+        )
         return
 
     # 5) "musique" tout seul ou "lance/met/joue de la musique" -> SPOTIFY
@@ -3217,7 +3283,7 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=T
                     pass
 
             msg_vocal = f"Musique en aleatoire, {USER_NAME}." if veut_shuffle else f"Musique lancee, {USER_NAME}."
-            await parler(msg_vocal)
+            await _parler_et_restaurer(msg_vocal)
             return
 
         # Fallback : Spotify introuvable -> YouTube Liked via Playwright
@@ -3225,13 +3291,13 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=T
         if jarvis_browser:
             try:
                 ok, msg = await jarvis_browser.play_liked_shuffle()
-                await parler(f"C'est parti, {USER_NAME}." if ok else msg)
+                await _parler_et_restaurer(f"C'est parti, {USER_NAME}." if ok else msg)
                 return
             except Exception as e:
                 print(f"[MUSIQUE] Erreur Playwright : {e}")
         try:
             webbrowser.open("https://www.youtube.com/playlist?list=LL", new=2)
-            await parler("Spotify introuvable. J'ouvre ta playlist YouTube.")
+            await _parler_et_restaurer("Spotify introuvable. J'ouvre ta playlist YouTube.")
             return
         except Exception as e:
             print(f"[MUSIQUE-FALLBACK] {e}")
@@ -3245,7 +3311,7 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=T
             await asyncio.sleep(0.3)
             import pyautogui as _pa
             _pa.hotkey("ctrl", "shift", "s")
-            await parler("Lecture aleatoire activee.")
+            await _parler_et_restaurer("Lecture aleatoire activee.")
             return
         except Exception as e:
             print(f"[SHUFFLE] {e}")
@@ -3309,22 +3375,9 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=T
         except Exception as e:
             print(f"[BROWSER] Erreur : {e}")
 
-    # Spotify AVANT pc_actions (apres meross/browser) : capture "joue X sur
-    # spotify", "pause", "musique suivante", etc. via l'API officielle. Le module
-    # retourne (None, False) s'il n'est pas configure -> la chaine continue (les
-    # touches media globales plus haut restent le fallback sans config Spotify).
-    if spotify:
-        try:
-            sp_reponse, sp_ok = spotify.executer(texte_utilisateur)
-            if sp_reponse is not None:
-                print(f"[SPOTIFY] {sp_reponse}")
-                if mobile_ws:
-                    _skip_pc_audio = True
-                await parler(sp_reponse)
-                _skip_pc_audio = False
-                return
-        except Exception as e:
-            print(f"[SPOTIFY] Erreur : {e}")
+    # NB : le connecteur Spotify API est branche plus haut (section 2ter),
+    # AVANT les interceptions touches media, pour que pause/suivant/volume
+    # controlent le device Spotify actif quand l'API est configuree.
 
     # OpenClaw AVANT skills/pc_actions : capture "demande a openclaw...",
     # "envoie a openclaw...", "statut openclaw". Le module retourne (None, False)

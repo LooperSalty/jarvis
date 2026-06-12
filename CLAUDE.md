@@ -62,10 +62,13 @@ cd model_advisor && python -m PyInstaller --onefile --windowed --name ModelAdvis
 cd frontend && npm run dev          # http://localhost:5173
 
 # Dépendances
-python -m pip install -r requirements.txt          # base
+python -m pip install -r requirements-windows.txt  # set runtime épuré Windows (build .exe + dev)
 python -m pip install -r requirements-voice.txt    # pipeline voix avancé (STT/wake word/barge-in)
 python -m pip install -r requirements-macos.txt    # extras macOS
 cd frontend && npm install
+# NB : requirements.txt est un freeze complet de la machine dev (aider, kimi...)
+# dont les pins sont en conflit entre eux : NE PAS l'utiliser sur un env vierge
+# (ResolutionImpossible). requirements-windows.txt est la liste curatée.
 
 # Mode 100% local (force Ollama, ignore les clés cloud)
 FORCE_OLLAMA=1 python main2.py
@@ -200,6 +203,9 @@ Sans clé valide, `_cle_valide()` détecte les placeholders `VOTRE_API` / `VOTRE
 
 ## Pièges connus
 
+- **Persistance en mode .exe : pattern `_dossier_donnees()` OBLIGATOIRE** : en frozen le cwd est `sys._MEIPASS` (temporaire, effacé à la sortie). Tout fichier lu/écrit au runtime (`.env`, `jarvis_memoire.json`, `jarvis_historique.json`, `jarvis_mcp.json`, `token.pickle`, profil, routines...) doit être résolu à côté de l'exe via `Path(sys.executable).parent` quand `sys.frozen` (cf. `jarvis_profile._dossier_donnees`). Un chemin relatif ou `Path(__file__).parent` = données perdues à chaque fermeture du .exe.
+- **Les specs refusent de builder si les deps manquent** : garde-fou `find_spec` en tête de `Jarvis.spec`/`JarvisWeb.spec` (sinon PyInstaller "réussit" et produit un .exe qui crashe en ModuleNotFoundError). Installer `requirements-windows.txt` d'abord.
+- **Aucun secret dans les binaires** : `.env`, `credentials.json`, `jarvis_memoire.json` et `jarvis_home_config.py` (excludes) ne sont PAS embarqués dans les .exe — ils vivent à côté du binaire. Ne jamais les rajouter aux `datas`.
 - **Conflit de port 8765** : si une instance Python orpheline tourne, le nouveau bind échoue silencieusement et le frontend reste en "reconnexion". Vérifier avec `Get-NetTCPConnection -LocalPort 8765`.
 - **Vite sur 5174** : si le 5173 est déjà pris (ancienne instance npm pas tuée), Vite démarre sur 5174 mais main2.py ouvre `localhost:5173` dans le navigateur — ouvrir 5174 manuellement ou tuer l'ancien node.
 - **Premier appel Ollama lent** : ~25-30s le temps de charger le modèle en RAM, ensuite 2-5s.

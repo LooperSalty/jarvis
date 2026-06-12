@@ -28,6 +28,8 @@ import inspect
 import json
 import os
 import re
+import sys
+import time
 import unicodedata
 from pathlib import Path
 from typing import Any
@@ -94,11 +96,27 @@ except Exception as e:
     jarvis_secrets = None
     print(f"[DASHBOARD] Module jarvis_secrets indisponible : {e}")
 
+try:
+    import jarvis_version
+except Exception as e:
+    jarvis_version = None
+    print(f"[DASHBOARD] Module jarvis_version indisponible : {e}")
+
 
 # ==========================================
 # CONSTANTES
 # ==========================================
-REPO_DIR = Path(__file__).resolve().parent
+def _dossier_donnees() -> Path:
+    """Dossier ou lire/ecrire le .env. A cote de l'exe en mode PyInstaller
+    (sys._MEIPASS est temporaire et efface a la sortie : ecrire dedans perdrait
+    les reglages a chaque redemarrage), sinon racine du repo. Meme pattern que
+    jarvis_profile._dossier_donnees."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+REPO_DIR = _dossier_donnees()
 ENV_PATH = REPO_DIR / ".env"
 
 # Liste blanche des cles .env gerees par le dashboard (rien d'autre n'est accepte)
@@ -742,9 +760,39 @@ def _etat_voix() -> dict[str, bool]:
     }
 
 
+# Cache du check de mise a jour : un appel reseau max par heure (l'overview
+# est rafraichi a chaque visite de la section, on ne re-interroge pas GitHub
+# a chaque fois). {"resultat": dict | None, "expire": float monotonic}
+_UPDATE_TTL_S = 3600.0
+_UPDATE_CACHE: dict[str, Any] = {"resultat": None, "expire": 0.0}
+
+
+def _info_maj() -> dict:
+    """Version locale + disponibilite d'une mise a jour (cache 1 h).
+
+    Ne leve jamais : check_update() encapsule deja ses erreurs reseau.
+    """
+    if jarvis_version is None:
+        return {"version": None, "update": None}
+    maintenant = time.monotonic()
+    if _UPDATE_CACHE["resultat"] is None or maintenant >= _UPDATE_CACHE["expire"]:
+        _UPDATE_CACHE["resultat"] = jarvis_version.check_update()
+        _UPDATE_CACHE["expire"] = maintenant + _UPDATE_TTL_S
+    info = _UPDATE_CACHE["resultat"]
+    return {
+        "version": jarvis_version.VERSION,
+        "update": {
+            "disponible": bool(info.get("disponible")),
+            "version_distante": info.get("version_distante"),
+            "url": info.get("url"),
+        },
+    }
+
+
 async def _h_overview(data: dict) -> dict:
     env_keys = lire_cles_env()
     ollama_ok = await _en_executor(_ollama_disponible)
+    maj = await _en_executor(_info_maj)
     return {
         "action": "dash_overview",
         "user_name": _nom_utilisateur(),
@@ -753,6 +801,7 @@ async def _h_overview(data: dict) -> dict:
         "keyring": _keyring_disponible(),
         "voix": _etat_voix(),
         "restart_required": _RESTART_REQUIRED,
+        **maj,
     }
 
 

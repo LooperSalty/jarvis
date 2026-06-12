@@ -71,8 +71,10 @@ class _McpSession:
 def _config_path() -> Path:
     """Chemin de jarvis_mcp.json (racine du repo, a cote de main2.py)."""
     if getattr(sys, "frozen", False):
-        # .exe PyInstaller : __file__ pointe dans le bundle temporaire
-        return Path(os.getcwd()) / "jarvis_mcp.json"
+        # .exe PyInstaller : a cote de l'exe (persistant). Le cwd est _MEIPASS,
+        # un dossier temporaire efface a la sortie — y lire/ecrire perdait la
+        # config MCP a chaque fermeture et ignorait le fichier de l'utilisateur.
+        return Path(sys.executable).resolve().parent / "jarvis_mcp.json"
     return Path(__file__).resolve().parent.parent / "jarvis_mcp.json"
 
 
