@@ -454,8 +454,19 @@ def _purger_cles_env(cles) -> None:
         tmp = ENV_PATH.with_name(ENV_PATH.name + ".tmp")
         tmp.write_text("\n".join(gardees) + "\n", encoding="utf-8")
         os.replace(tmp, ENV_PATH)
+        _restreindre_env()
     except Exception as e:
         print(f"[DASHBOARD] Purge .env echouee : {e}")
+
+
+def _restreindre_env() -> None:
+    """ACL restreinte sur le .env apres ecriture (peut contenir des secrets
+    en clair quand keyring est indisponible). Best-effort, jamais d'exception."""
+    if jarvis_security is not None:
+        try:
+            jarvis_security.restreindre_acces_fichier(ENV_PATH)
+        except Exception as e:
+            print(f"[DASHBOARD] Restriction ACL du .env echouee : {e}")
 
 
 def _keyring_disponible() -> bool:
@@ -528,6 +539,7 @@ def _set_env_detail(updates: Any) -> tuple[bool, str | None]:
             tmp = ENV_PATH.with_name(ENV_PATH.name + ".tmp")
             tmp.write_text("\n".join(nouvelles) + "\n", encoding="utf-8")
             os.replace(tmp, ENV_PATH)
+            _restreindre_env()
         except Exception as e:
             print(f"[DASHBOARD] Ecriture .env echouee : {e}")
             return False, "Ecriture du fichier .env impossible"
