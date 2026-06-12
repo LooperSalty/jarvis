@@ -103,6 +103,9 @@ apprendre/prompt_optimise.txt
 apprendre/lora_jarvis/
 apprendre/_tinyshakespeare.txt
 
+# Sortie de compilation de l'installateur (regenerable via scripts/build_installer.bat)
+installer/output/
+
 # Artefacts Playwright MCP
 .playwright-mcp/
 

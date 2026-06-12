@@ -80,6 +80,9 @@ jobs:
       - name: Installer les dependances Python
         # requirements-windows.txt = deps runtime reelles (PAS requirements.txt,
         # freeze complet de la machine dev, non installable sur un env vierge).
+        # Decision actee : la voix locale (requirements-voice.txt) est EXCLUE du
+        # binaire officiel (+100-300 Mo) — STT/wake-word retombent sur le cloud.
+        # Les .spec impriment un ATTENTION dans le log de build pour le rappeler.
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-windows.txt
@@ -88,13 +91,37 @@ jobs:
         run: |
           python -m PyInstaller Jarvis.spec --clean --noconfirm
           python -m PyInstaller JarvisWeb.spec --clean --noconfirm
+      - name: Build ModelAdvisor.exe
+        # Stdlib uniquement (tkinter/ctypes) : aucun requirement supplementaire.
+        working-directory: model_advisor
+        run: python -m PyInstaller --onefile --windowed --name ModelAdvisor --clean --noconfirm model_advisor.py
+      - name: Compiler l'installateur (Inno Setup)
+        # JarvisSetup-x.y.z.exe : assistant graphique FR/EN qui installe Jarvis
+        # sans prerequis (et, en option, Ollama + un modele local). Le .iss lit
+        # les binaires a la racine (BinDir par defaut "..") : on les y copie.
+        shell: pwsh
+        run: |
+          $version = python -c "from jarvis_version import VERSION; print(VERSION)"
+          Copy-Item dist\Jarvis.exe, dist\JarvisWeb.exe -Destination .
+          Copy-Item model_advisor\dist\ModelAdvisor.exe -Destination .
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          & $iscc /DAppVersion=$version installer\JarvisSetup.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC a echoue ($LASTEXITCODE)" }
       - name: Archive des binaires Windows
         run: |
-          Compress-Archive -Path dist/Jarvis.exe,dist/JarvisWeb.exe -DestinationPath jarvis-windows.zip
+          Compress-Archive -Path dist/Jarvis.exe,dist/JarvisWeb.exe,model_advisor/dist/ModelAdvisor.exe -DestinationPath jarvis-windows.zip
       - uses: actions/upload-artifact@v4
         with:
           name: windows-build
           path: jarvis-windows.zip
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-setup
+          path: installer/output/JarvisSetup-*.exe
           if-no-files-found: error
 
   build-macos:
@@ -155,11 +182,16 @@ jobs:
           merge-multiple: true
       - name: Lister les artefacts
         run: ls -R artefacts || echo "aucun artefact"
-      - name: Verifier la presence du binaire Windows
-        # Le .exe Windows est le livrable principal : pas de release sans lui.
+      - name: Verifier la presence des livrables Windows
+        # Le .exe Windows et l'installateur sont les livrables principaux :
+        # pas de release sans eux.
         run: |
           test -f artefacts/jarvis-windows.zip || {
             echo "::error::jarvis-windows.zip absent — release annulee (voir job build-windows)"
+            exit 1
+          }
+          ls artefacts/JarvisSetup-*.exe >/dev/null 2>&1 || {
+            echo "::error::JarvisSetup-*.exe absent — release annulee (voir l'etape Inno Setup du job build-windows)"
             exit 1
           }
       - name: Publier la release
@@ -168,6 +200,7 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: false
           files: |
+            artefacts/JarvisSetup-*.exe
             artefacts/jarvis-frontend-dist.zip
             artefacts/jarvis-windows.zip
             artefacts/jarvis-macos.zip
