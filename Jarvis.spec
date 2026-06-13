@@ -154,20 +154,30 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# Build ONEDIR (et non onefile) : en onefile, le bootloader decompresse tout le
+# bundle dans un dossier temporaire (sys._MEIPASS) AU LANCEMENT puis l'execute —
+# comportement de "dropper/packer" que Defender/SmartScreen flaguent en faux
+# positif (Trojan:Win32/Wacatac.B!ml). En onedir rien ne se decompresse au
+# runtime : le heuristique principal disparait, et c'est aussi plus rapide a
+# demarrer. La distribution finale passe par l'installateur (JarvisSetup.exe),
+# donc le dossier _internal/ reste invisible pour l'utilisateur.
+#
+# CONTRAINTE PARTAGE DE DONNEES : Jarvis.exe et JarvisWeb.exe doivent rester
+# DANS LE MEME DOSSIER pour partager .env / memoire / profil (tous les
+# _dossier_donnees() resolvent Path(sys.executable).parent). On garde donc les
+# deux exes a la racine de {app} et on isole leurs payloads dans des dossiers de
+# contenu DISTINCTS via contents_directory ('_internal' ici, '_internal_web'
+# pour JarvisWeb) : aucune collision, aucun changement cote code Python.
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
+    exclude_binaries=True,   # onedir : les binaires vont dans COLLECT, pas dans l'exe
     name='Jarvis',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,             # UPX peut casser pywebview / bibliotheques natives
-    upx_exclude=[],
-    runtime_tmpdir=None,
+    upx=False,             # UPX amplifie les faux positifs antivirus : laisser OFF
     console=False,         # mode windowed : pas de fenetre console
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -176,4 +186,16 @@ exe = EXE(
     entitlements_file=None,
     icon=ICON,             # assets/jarvis.ico
     version=VERSION,       # version_info.txt (metadonnees Windows)
+    contents_directory='_internal',  # distinct de JarvisWeb pour cohabiter dans {app}
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,             # idem : ne jamais activer UPX (faux positifs)
+    upx_exclude=[],
+    name='Jarvis',         # sortie : dist/Jarvis/Jarvis.exe + dist/Jarvis/_internal/
 )

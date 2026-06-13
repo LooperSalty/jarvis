@@ -123,20 +123,20 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# Build ONEDIR (cf. Jarvis.spec pour le detail) : evite l'auto-extraction
+# runtime qui declenche les faux positifs antivirus. contents_directory distinct
+# ('_internal_web') pour que JarvisWeb.exe cohabite avec Jarvis.exe dans le meme
+# dossier {app} (partage de .env / memoire / profil) sans collision de payload.
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
+    exclude_binaries=True,   # onedir : les binaires vont dans COLLECT, pas dans l'exe
     name='JarvisWeb',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,
-    upx_exclude=[],
-    runtime_tmpdir=None,
+    upx=False,             # UPX amplifie les faux positifs antivirus : laisser OFF
     console=False,         # mode windowed : pas de fenetre console
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -145,4 +145,16 @@ exe = EXE(
     entitlements_file=None,
     icon=ICON,             # assets/jarvis.ico
     version=VERSION,       # version_info.txt (metadonnees Windows)
+    contents_directory='_internal_web',  # distinct de Jarvis pour cohabiter dans {app}
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name='JarvisWeb',      # sortie : dist/JarvisWeb/JarvisWeb.exe + dist/JarvisWeb/_internal_web/
 )

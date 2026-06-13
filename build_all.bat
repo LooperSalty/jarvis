@@ -25,9 +25,14 @@ python -m PyInstaller --onefile --windowed --name ModelAdvisor --clean --noconfi
 popd
 if errorlevel 1 ( echo ECHEC build ModelAdvisor.exe & exit /b 1 )
 
-echo === Copie des .exe a la racine ===
-copy /Y dist\Jarvis.exe Jarvis.exe
-copy /Y dist\JarvisWeb.exe JarvisWeb.exe
+echo === Copie des binaires a la racine ===
+REM Builds ONEDIR : Jarvis et JarvisWeb sont des DOSSIERS (exe + _internal*),
+REM pas des fichiers uniques. On copie leur contenu a la racine pour garder le
+REM double-clic direct : Jarvis.exe + _internal\ et JarvisWeb.exe + _internal_web\
+REM cohabitent (dossiers de contenu distincts), et partagent .env / memoire au
+REM meme endroit. ModelAdvisor reste un onefile (tkinter stdlib, FP negligeable).
+xcopy "dist\Jarvis" "." /E /Y /I /Q
+xcopy "dist\JarvisWeb" "." /E /Y /I /Q
 copy /Y model_advisor\dist\ModelAdvisor.exe ModelAdvisor.exe
 
 echo.

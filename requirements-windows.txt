@@ -58,3 +58,13 @@ meross_iot>=0.4.10   # prises Wi-Fi Meross
 spotipy>=2.23        # Spotify API
 psutil>=5.9          # triggers contextuels
 playwright>=1.50     # navigateur pilote (necessite : playwright install chromium)
+
+# --- Outil de build (.exe) ---
+# PyInstaller est PINNE (et non >=) : le taux de faux positifs antivirus varie
+# d'une version a l'autre (le bootloader pre-compilé est re-fingerprinte a
+# chaque release ; cf. issue #8164 ou la 6.x a vu un pic de FP Gen:Variant.Cerbu
+# vs 5.13.2). Figer la version garantit des builds reproductibles (meme hash =
+# whitelist Defender qui tient entre re-soumissions). Avant de bumper : builder,
+# uploader le .exe sur VirusTotal, comparer le nombre de detections, et ne monter
+# que si ca ne regresse pas.
+pyinstaller==6.20.0
