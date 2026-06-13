@@ -52,7 +52,24 @@ import pickle
 import json
 import re
 import shutil
+import tempfile
 from pathlib import Path
+
+
+def _chemin_temp(nom: str) -> str:
+    """Chemin d'un fichier temporaire runtime (TTS, vision...) DANS le dossier
+    temp de l'OS, jamais a la racine du projet ni a cote de l'exe.
+
+    Historiquement ces fichiers etaient ecrits avec un nom relatif (donc dans le
+    cwd = racine du projet) ; quand le nettoyage echouait (fichier verrouille,
+    process tue en pleine lecture), ils s'accumulaient a la racine. On les isole
+    dans %TEMP%/jarvis_runtime/ pour garder la racine propre durablement."""
+    base = Path(tempfile.gettempdir()) / "jarvis_runtime"
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        base = Path(tempfile.gettempdir())
+    return str(base / nom)
 from datetime import datetime
 try:
     import pyaudio
@@ -1369,7 +1386,7 @@ def creer_google_sheet(titre="Nouvelle Feuille"):
 
 async def jarvis_vision_cliquer(instruction):
     try:
-        path_ss = "jarvis_vision_temp.png"
+        path_ss = _chemin_temp("jarvis_vision_temp.png")
         screenshot = pyautogui.screenshot()
         screenshot.save(path_ss)
         img = Image.open(path_ss)
@@ -1408,7 +1425,7 @@ async def jarvis_vision_cliquer(instruction):
 
 async def jarvis_vision_ecrire(instruction, texte_a_taper):
     try:
-        path_ss = "jarvis_vision_temp.png"
+        path_ss = _chemin_temp("jarvis_vision_temp.png")
         screenshot = pyautogui.screenshot()
         screenshot.save(path_ss)
         img = Image.open(path_ss)
@@ -1963,7 +1980,7 @@ async def parler(texte):
     is_speaking  = True
     await send_web_state("speaking")
     speak_volume = 0.0
-    tmp = f"jarvis_tts_{int(time.time()*1000)}.mp3"
+    tmp = _chemin_temp(f"jarvis_tts_{int(time.time()*1000)}.mp3")
 
     # Barge-in OPT-IN : si le flag est on et pyaudio dispo, on surveille le micro
     # pendant la lecture ; au-dela du seuil RMS, on_parole bascule STOP_PARLER=True
