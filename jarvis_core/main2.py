@@ -553,6 +553,12 @@ except Exception as e:
     pc_actions = None
 
 try:
+    from jarvis_actions import system_actions
+except Exception as e:
+    print(f"[SYS] Module system_actions desactive : {e}")
+    system_actions = None
+
+try:
     from jarvis_actions import dev_actions
 except Exception as e:
     print(f"[DEV] Module dev_actions desactive : {e}")
@@ -3478,6 +3484,22 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=T
                 return
         except Exception as e:
             print(f"[DISPLAY] Erreur : {e}")
+
+    # Actions systeme (energie, fenetres, infos materielles, fermer un programme,
+    # presse-papier, corbeille) AVANT pc_actions : "eteins le pc" doit matcher ici
+    # et non etre confondu avec l'ouverture generique d'une app.
+    if system_actions:
+        try:
+            sys_reponse, sys_ok = system_actions.executer(texte_utilisateur)
+            if sys_reponse is not None:
+                print(f"[SYS] {sys_reponse}")
+                if mobile_ws:
+                    _skip_pc_audio = True
+                await parler(sys_reponse)
+                _skip_pc_audio = False
+                return
+        except Exception as e:
+            print(f"[SYS] Erreur action systeme : {e}")
 
     if pc_actions:
         try:

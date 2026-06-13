@@ -23,7 +23,7 @@ jarvis/
 │   └── jarvis_home_config.py + _example.py        ← config domotique perso (gitignoré) + modèle versionné
 ├── Jarvis.spec / JarvisWeb.spec                   ← specs PyInstaller (entry = jarvis_core/…, pathex inclut jarvis_core/)
 ├── jarvis_actions/                                ← package modules d'actions importes par main2
-│   ├── pc_actions.py / dev_actions.py
+│   ├── pc_actions.py / system_actions.py / dev_actions.py
 │   ├── claude_bridge.py / obsidian_memory.py
 │   ├── spotify.py / messaging_bridge.py / openclaw.py  ← connecteurs (PR #8/#11)
 │   ├── voice_stt.py / wake_word.py / barge_in.py  ← pipeline voix avancé
@@ -176,6 +176,7 @@ Page Vite séparée `frontend/dashboard.html` (sources `frontend/src/dashboard/`
 Détection locale par mots-clés AVANT tout appel IA — économise des appels Gemini/Ollama :
 
 - **`pc_actions.py`** : ouvre/ferme apps Windows (`chrome`, `vscode`, `discord`...), navigue sites (`youtube`, `gmail`, `google maps`...), capture d'écran, contrôle souris/clavier via `pyautogui`. Mappings dans `_APP_ALIASES` et `_WEB_SHORTCUTS`. Retourne `(reponse, success)` ou `(None, False)` si non reconnu.
+- **`system_actions.py`** : actions système avancées — énergie (`éteins/redémarre/mets en veille/déconnecte le pc`, avec délai annulable de 30 s : `annule l'extinction`), gestion des fenêtres (`réduis tout`, `agrandis/réduis la fenêtre`, `change de fenêtre`, `fenêtre à gauche/droite` via raccourcis `win+*`), infos matérielles lecture seule (`batterie`, `processeur`, `mémoire`, `espace disque`, `état du pc` via `psutil`), fermer un programme (`ferme chrome` → `taskkill`), lire le presse-papier (`pyperclip`), vider la corbeille. Cœur = `detecter_intention(cmd)` (routeur **pur** texte→intention, table `_REGLES`, entièrement testé) + handlers à dépendances **optionnelles** (`pyautogui`/`psutil`/`pyperclip` → dégradation propre en CI/headless). Branché dans `traiter_reponse_ia` **AVANT `pc_actions`** (sinon « éteins le pc » serait confondu avec l'ouverture d'app). « éteins tout »/« éteins la lumière » ne déclenchent PAS l'arrêt (laissés à la domotique).
 - **`dev_actions.py`** : ouvre des projets par nom (scan `~/Downloads`, `~/Documents`, `~/Desktop`, `~/Projects`, `~/Code`, `~/dev` à profondeur ≤ 4, marqueurs `.git`/`package.json`/`pyproject.toml`/`Cargo.toml`/`go.mod`/`pom.xml`), git status/pull/push, timer, presse-papier, terminal.
 - **`claude_bridge.py`** : surveille `~/.claude/projects/` (mtime du dernier fichier) et lance `claude` CLI en mode non-interactif (`shutil.which("claude")` puis `subprocess`). Permet à Jarvis de déléguer une tâche de code à Claude Code.
 - **`obsidian_memory.py`** : `ObsidianBridge(vault_path)` synchronise mémoire Jarvis ↔ Obsidian. Crée `{vault}/Jarvis/Memoire/*.md` (une note par clé), `{vault}/Jarvis/Conversations/{YYYY-MM-DD}.md` (log quotidien), `{vault}/Jarvis/Notes/`. `_slugify` impose noms de fichiers ASCII safe. Ne déclenche RIEN si le vault n'existe pas (`FileNotFoundError`).
