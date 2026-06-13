@@ -179,3 +179,13 @@ export const SECTIONS: readonly Section[] = [
   sectionPersonnalisation,
   sectionCowork,
 ];
+
+/**
+ * Onglets PRINCIPAUX de la sidebar (usage quotidien), dans l'ordre d'affichage.
+ * Tout le reste est regroupe sous "Parametres" (sous-navigation) pour une UI
+ * plus pro. main.ts construit la nav a partir de cette liste.
+ */
+export const MAIN_SECTION_IDS: readonly string[] = ["chat", "cowork", "automation"];
+
+/** Section affichee par defaut a l'ouverture (premier onglet principal). */
+export const DEFAULT_SECTION_ID = "chat";

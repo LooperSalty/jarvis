@@ -865,6 +865,44 @@ select.input { appearance: auto; }
   .memory-layout { grid-template-columns: 1fr; }
 }
 
+/* ── Navigation : separateur Parametres + sous-onglets ──────── */
+
+.nav-settings { margin-top: 6px; padding-top: 12px; position: relative; }
+.nav-settings::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 10px;
+  right: 10px;
+  height: 1px;
+  background: var(--panel-border);
+}
+
+.subnav {
+  display: flex;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.subnav-btn {
+  display: flex;
+  align-items: center;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 8px 13px;
+  margin: 0 2px -1px 0;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s;
+}
+.subnav-btn:hover { color: var(--text); }
+.subnav-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.subnav-icon { margin-right: 7px; font-size: 14px; }
+
 /* ── Personnalisation (themes + orbe) ───────────────────────── */
 /* NB : marges (pas de `gap` flex) pour rester compatible QtWebEngine Chromium 83 ;
    les grilles utilisent grid-gap (supporte). */
@@ -902,6 +940,19 @@ select.input { appearance: auto; }
 }
 
 .swatch-dot.orb { box-shadow: 0 0 10px rgba(255, 255, 255, 0.18); }
+
+/* Apercus de FORME d'orbe (mini-rendu CSS de chaque variante) */
+.swatch-dot.orb-shape { box-shadow: none; }
+.orb-shape-galaxie {
+  background: radial-gradient(circle at 40% 35%, #9fe6ff, #4ca8e8 50%, #b066ff);
+}
+.orb-shape-oeil {
+  background: radial-gradient(circle, #04060c 0 26%, #6fd8ff 30%, #4ca8e8 48%, transparent 54%);
+}
+.orb-shape-anneau {
+  background: repeating-radial-gradient(circle, #6fd8ff 0 1.5px, transparent 1.5px 4px);
+}
+
 .swatch-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .color-input {
@@ -973,6 +1024,34 @@ select.input { appearance: auto; }
   background: rgba(0, 0, 0, 0.25);
   border: 1px solid var(--panel-border);
 }
+
+/* ── Synchronisation memoire (connecteurs externes) ─────────── */
+
+.sync-list { display: flex; flex-direction: column; }
+.sync-list > * + * { margin-top: 8px; }
+
+.sync-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 14px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.sync-info { min-width: 0; }
+.sync-head { display: flex; align-items: center; }
+.sync-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 8px;
+  flex: none;
+  background: #5a6a7a;
+}
+.sync-dot.on { background: var(--ok); box-shadow: 0 0 8px rgba(46, 204, 113, 0.6); }
+.sync-name { color: var(--text); font-size: 13px; }
+.sync-state { margin-left: 8px; font-size: 11px; color: var(--text-dim); }
 
 /* ── Repli QtWebEngine : `gap` flex non supporte (Chromium 83) ────────────────
    Classe .no-flex-gap posee sur <html> par main.ts quand le moteur n'implemente

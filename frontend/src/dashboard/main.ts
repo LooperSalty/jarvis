@@ -9,6 +9,8 @@
 import * as ws from "./ws";
 import {
   SECTIONS,
+  MAIN_SECTION_IDS,
+  DEFAULT_SECTION_ID,
   type Section,
   type Cleanup,
   el,
@@ -78,20 +80,36 @@ const contentHead = el("header", "content-head");
 const contentTitle = el("h1", "content-title", "");
 contentHead.appendChild(contentTitle);
 content.appendChild(contentHead);
+// Barre de sous-onglets (visible seulement dans la page "Parametres").
+const subnav = el("div", "subnav hidden");
+content.appendChild(subnav);
 const sectionRoot = el("div", "section-root");
 content.appendChild(sectionRoot);
 
 appRoot.appendChild(sidebar);
 appRoot.appendChild(content);
 
-// ── Navigation par sections (hash routing) ────────────────────────────────────
+// ── Navigation : onglets principaux + page "Parametres" (sous-onglets) ────────
+
+const mainSections = MAIN_SECTION_IDS.map((id) =>
+  SECTIONS.find((s) => s.id === id)
+).filter((s): s is Section => Boolean(s));
+const settingsSections = SECTIONS.filter((s) => !MAIN_SECTION_IDS.includes(s.id));
+const settingsIds = new Set(settingsSections.map((s) => s.id));
+
+const SETTINGS_BTN_ID = "__settings__";
 
 const navButtons = new Map<string, HTMLButtonElement>();
+const subnavButtons = new Map<string, HTMLButtonElement>();
 let activeCleanup: Cleanup | null = null;
 let activeId = "";
 
 function findSection(id: string): Section {
-  return SECTIONS.find((s) => s.id === id) ?? SECTIONS[0];
+  return (
+    SECTIONS.find((s) => s.id === id) ??
+    SECTIONS.find((s) => s.id === DEFAULT_SECTION_ID) ??
+    SECTIONS[0]
+  );
 }
 
 function mountSection(id: string): void {
@@ -107,9 +125,19 @@ function mountSection(id: string): void {
     activeCleanup = null;
   }
 
+  const isSettings = settingsIds.has(section.id);
+
   clearChildren(sectionRoot);
   contentTitle.textContent = section.label;
+
+  // Sidebar : bouton principal actif, ou bouton "Parametres" si section de reglage.
   for (const [btnId, btn] of navButtons) {
+    const actif = isSettings ? btnId === SETTINGS_BTN_ID : btnId === section.id;
+    btn.classList.toggle("active", actif);
+  }
+  // Sous-onglets visibles uniquement dans la page Parametres.
+  subnav.classList.toggle("hidden", !isSettings);
+  for (const [btnId, btn] of subnavButtons) {
     btn.classList.toggle("active", btnId === section.id);
   }
 
@@ -125,20 +153,45 @@ function mountSection(id: string): void {
   }
 }
 
-for (const section of SECTIONS) {
+function navigate(id: string): void {
+  window.location.hash = id;
+}
+
+// Onglets principaux (Chat / Cowork / Automatisation)
+for (const section of mainSections) {
   const btn = el("button", "nav-btn") as HTMLButtonElement;
   btn.type = "button";
   btn.appendChild(el("span", "nav-icon", section.icon));
   btn.appendChild(el("span", "nav-label", section.label));
-  btn.addEventListener("click", () => {
-    window.location.hash = section.id;
-  });
+  btn.addEventListener("click", () => navigate(section.id));
   navButtons.set(section.id, btn);
   nav.appendChild(btn);
 }
 
+// Bouton "Parametres" -> ouvre la premiere section de reglages.
+const settingsBtn = el("button", "nav-btn nav-settings") as HTMLButtonElement;
+settingsBtn.type = "button";
+settingsBtn.appendChild(el("span", "nav-icon", "⚙"));
+settingsBtn.appendChild(el("span", "nav-label", "Parametres"));
+settingsBtn.addEventListener("click", () =>
+  navigate(settingsSections[0]?.id ?? DEFAULT_SECTION_ID)
+);
+navButtons.set(SETTINGS_BTN_ID, settingsBtn);
+nav.appendChild(settingsBtn);
+
+// Sous-onglets de la page Parametres
+for (const section of settingsSections) {
+  const btn = el("button", "subnav-btn") as HTMLButtonElement;
+  btn.type = "button";
+  btn.appendChild(el("span", "subnav-icon", section.icon));
+  btn.appendChild(el("span", "", section.label));
+  btn.addEventListener("click", () => navigate(section.id));
+  subnavButtons.set(section.id, btn);
+  subnav.appendChild(btn);
+}
+
 function sectionFromHash(): string {
-  return window.location.hash.replace(/^#/, "") || SECTIONS[0].id;
+  return window.location.hash.replace(/^#/, "") || DEFAULT_SECTION_ID;
 }
 
 window.addEventListener("hashchange", () => mountSection(sectionFromHash()));

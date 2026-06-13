@@ -93,6 +93,24 @@ function parseItems(raw: unknown): MemoryItem[] {
   });
 }
 
+const CONNECTORS: ReadonlyArray<{ id: string; label: string; hint: string }> = [
+  {
+    id: "obsidian",
+    label: "Obsidian",
+    hint: "Un fichier markdown par souvenir dans le vault (cle OBSIDIAN_VAULT).",
+  },
+  {
+    id: "drive",
+    label: "Google Drive",
+    hint: "Sauvegarde du fichier memoire (credentials.json a cote de l'application).",
+  },
+  {
+    id: "notion",
+    label: "Notion",
+    hint: "Un souvenir par puce sous une page (cles NOTION_TOKEN + NOTION_PAGE_ID).",
+  },
+];
+
 function mount(root: HTMLElement): Cleanup {
   const layout = el("div", "memory-layout");
   root.appendChild(layout);
@@ -137,6 +155,66 @@ function mount(root: HTMLElement): Cleanup {
   const resultsBox = el("div", "memory-results");
   pSearch.body.appendChild(resultsBox);
   layout.appendChild(pSearch.root);
+
+  // ── Synchronisation vers services externes ──
+  const pSync = panel(
+    "Synchronisation de la memoire",
+    "Connecte ta memoire a Obsidian, Google Drive ou Notion."
+  );
+  const syncList = el("div", "sync-list");
+  pSync.body.appendChild(syncList);
+  pSync.body.appendChild(
+    el(
+      "p",
+      "panel-note",
+      "Renseigne les acces dans Parametres > Vue d'ensemble (cles API) : OBSIDIAN_VAULT, NOTION_TOKEN + NOTION_PAGE_ID, ou depose credentials.json (Google) a cote de l'application."
+    )
+  );
+  layout.appendChild(pSync.root);
+
+  let connectorState: Record<string, boolean> = {};
+
+  function renderConnectors(): void {
+    clearChildren(syncList);
+    for (const c of CONNECTORS) {
+      const ok = Boolean(connectorState[c.id]);
+      const row = el("div", "sync-row");
+      const info = el("div", "sync-info");
+      const head = el("div", "sync-head");
+      head.appendChild(el("span", `sync-dot ${ok ? "on" : "off"}`));
+      head.appendChild(el("strong", "sync-name", c.label));
+      head.appendChild(el("span", "sync-state", ok ? "connecte" : "non configure"));
+      info.appendChild(head);
+      info.appendChild(el("p", "panel-note", c.hint));
+      row.appendChild(info);
+      const btn = button("Synchroniser", "primary");
+      btn.disabled = !ok;
+      btn.addEventListener("click", () => {
+        if (ws.send({ type: "dash_memory_sync", target: c.id })) {
+          btn.disabled = true;
+          showToast(`Synchronisation ${c.label}...`);
+        } else {
+          showToast("Backend deconnecte.", false);
+        }
+      });
+      row.appendChild(btn);
+      syncList.appendChild(row);
+    }
+  }
+
+  function applyConnectors(raw: unknown): void {
+    const c = asRecord(raw);
+    connectorState = {
+      obsidian: asBool(c.obsidian),
+      drive: asBool(c.drive),
+      notion: asBool(c.notion),
+    };
+    renderConnectors();
+  }
+
+  function fetchConnectors(): void {
+    ws.send({ type: "dash_memory_connectors" });
+  }
 
   // ── Graphe : handle de rendu, detruit avant chaque re-rendu ──
   let graphHandle: { destroy(): void } | null = null;
@@ -293,17 +371,37 @@ function mount(root: HTMLElement): Cleanup {
       asBool(msg.rag)
     );
   });
+  const offConnectors = ws.on("dash_memory_connectors", (msg) =>
+    applyConnectors(msg.connectors)
+  );
+  const offSync = ws.on("dash_memory_sync", (msg) => {
+    showToast(
+      asString(msg.message, asBool(msg.ok) ? "Synchronise." : "Echec de la synchronisation."),
+      asBool(msg.ok)
+    );
+    if (msg.connectors !== undefined) applyConnectors(msg.connectors);
+    else renderConnectors();
+  });
   const offStatus = ws.onStatus((ok) => {
-    if (ok) fetchMemory();
+    if (ok) {
+      fetchMemory();
+      fetchConnectors();
+    }
   });
 
-  if (ws.isConnected()) fetchMemory();
+  if (ws.isConnected()) {
+    fetchMemory();
+    fetchConnectors();
+  }
   renderItems([]);
+  renderConnectors();
 
   return () => {
     offMemory();
     offSaved();
     offResults();
+    offConnectors();
+    offSync();
     offStatus();
     destroyGraph();
   };

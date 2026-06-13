@@ -5,12 +5,17 @@ export type OrbState = "idle" | "listening" | "thinking" | "speaking";
 /** Palette de l'orbe : une couleur "#rrggbb" par etat (partielle acceptee). */
 export type OrbPalette = Partial<Record<OrbState, string>>;
 
+/** Forme visuelle de l'orbe — l'utilisateur peut en changer (Personnalisation). */
+export type OrbShape = "galaxie" | "oeil" | "anneau";
+
 export interface Orb {
   setState(state: OrbState): void;
   setVolume(volume: number): void;
   triggerDemo(): void;
   /** Remplace la couleur d'un ou plusieurs etats (personnalisation). */
   setPalette(palette: OrbPalette): void;
+  /** Libere le contexte WebGL (a appeler avant de recreer une autre forme). */
+  dispose(): void;
 }
 
 const _HEX_RE = /^#[0-9a-fA-F]{6}$/;
@@ -181,7 +186,89 @@ const haloFragment = `
   }
 `;
 
-export function createOrb(canvas: HTMLCanvasElement): Orb {
+function _rand(min: number, max: number): number {
+  return min + Math.random() * (max - min);
+}
+
+/** GALAXIE : courbes de Lissajous 3D (forme historique). */
+function fillGalaxie(positions: Float32Array, sizes: Float32Array, brights: Float32Array): void {
+  const harmonics = [
+    [1, 1], [2, 3], [3, 2], [3, 4], [5, 4], [3, 5], [1, 2], [2, 5], [4, 5],
+  ];
+  for (let o = 0; o < ORBIT_COUNT; o++) {
+    const { u, v } = randomOrthogonalBasis();
+    const [n1, n2] = harmonics[Math.floor(Math.random() * harmonics.length)];
+    const radius = _rand(0.6, 1.5);
+    const phaseOffset = _rand(0, Math.PI * 2);
+    for (let p = 0; p < POINTS_PER_ORBIT; p++) {
+      const i = o * POINTS_PER_ORBIT + p;
+      const t = (p / POINTS_PER_ORBIT) * Math.PI * 2;
+      const cx = Math.cos(n1 * t + phaseOffset);
+      const sy = Math.sin(n2 * t + phaseOffset * 0.7);
+      positions[i * 3 + 0] = (u.x * cx + v.x * sy) * radius + _rand(-0.01, 0.01);
+      positions[i * 3 + 1] = (u.y * cx + v.y * sy) * radius + _rand(-0.01, 0.01);
+      positions[i * 3 + 2] = (u.z * cx + v.z * sy) * radius + _rand(-0.01, 0.01);
+      sizes[i] = _rand(4, 8);
+      brights[i] = _rand(0.55, 1.0);
+    }
+  }
+}
+
+/** OEIL : anneaux concentriques quasi plats = un iris (centre = pupille vide). */
+function fillOeil(positions: Float32Array, sizes: Float32Array, brights: Float32Array): void {
+  for (let o = 0; o < ORBIT_COUNT; o++) {
+    const ringT = o / (ORBIT_COUNT - 1); // 0..1
+    const ringRadius = 0.22 + ringT * 1.28; // 0.22 .. 1.5 (pupille vide au centre)
+    for (let p = 0; p < POINTS_PER_ORBIT; p++) {
+      const i = o * POINTS_PER_ORBIT + p;
+      const a = (p / POINTS_PER_ORBIT) * Math.PI * 2;
+      const r = ringRadius + _rand(-0.015, 0.015);
+      positions[i * 3 + 0] = Math.cos(a) * r;
+      positions[i * 3 + 1] = Math.sin(a) * r;
+      positions[i * 3 + 2] = _rand(-0.04, 0.04); // quasi plat
+      sizes[i] = _rand(3.5, 7);
+      brights[i] = _rand(0.45, 0.9) * (0.5 + ringT * 0.5); // iris plus lumineux au bord
+    }
+  }
+}
+
+/** ANNEAU : anneaux inclines facon reacteur / gyroscope. */
+function fillAnneau(positions: Float32Array, sizes: Float32Array, brights: Float32Array): void {
+  for (let o = 0; o < ORBIT_COUNT; o++) {
+    const radius = 0.55 + (o % 6) * 0.16; // ~6 rayons distincts
+    const tilt = (o / ORBIT_COUNT) * Math.PI; // inclinaison variee par anneau
+    const ct = Math.cos(tilt);
+    const st = Math.sin(tilt);
+    for (let p = 0; p < POINTS_PER_ORBIT; p++) {
+      const i = o * POINTS_PER_ORBIT + p;
+      const a = (p / POINTS_PER_ORBIT) * Math.PI * 2;
+      const x0 = Math.cos(a) * radius;
+      const y0 = Math.sin(a) * radius;
+      const th = _rand(-0.03, 0.03); // epaisseur du tube
+      positions[i * 3 + 0] = x0 + th;
+      positions[i * 3 + 1] = y0 * ct + th;
+      positions[i * 3 + 2] = y0 * st + th;
+      sizes[i] = _rand(4, 8);
+      brights[i] = _rand(0.6, 1.0);
+    }
+  }
+}
+
+function fillGeometry(
+  shape: OrbShape,
+  positions: Float32Array,
+  sizes: Float32Array,
+  brights: Float32Array
+): void {
+  if (shape === "oeil") fillOeil(positions, sizes, brights);
+  else if (shape === "anneau") fillAnneau(positions, sizes, brights);
+  else fillGalaxie(positions, sizes, brights);
+}
+
+export function createOrb(
+  canvas: HTMLCanvasElement,
+  opts: { shape?: OrbShape } = {}
+): Orb {
   const renderer = new THREE.WebGLRenderer({
     canvas,
     antialias: true,
@@ -203,46 +290,8 @@ export function createOrb(canvas: HTMLCanvasElement): Orb {
   const sizes = new Float32Array(TOTAL_POINTS);
   const brights = new Float32Array(TOTAL_POINTS);
 
-  function rand(min: number, max: number): number {
-    return min + Math.random() * (max - min);
-  }
-
-  for (let o = 0; o < ORBIT_COUNT; o++) {
-    const { u, v } = randomOrthogonalBasis();
-    const harmonics = [
-      [1, 1],
-      [2, 3],
-      [3, 2],
-      [3, 4],
-      [5, 4],
-      [3, 5],
-      [1, 2],
-      [2, 5],
-      [4, 5],
-    ];
-    const [n1, n2] = harmonics[Math.floor(Math.random() * harmonics.length)];
-    const radius = rand(0.6, 1.5);
-    const phaseOffset = rand(0, Math.PI * 2);
-
-    for (let p = 0; p < POINTS_PER_ORBIT; p++) {
-      const i = o * POINTS_PER_ORBIT + p;
-      const t = (p / POINTS_PER_ORBIT) * Math.PI * 2;
-
-      const cx = Math.cos(n1 * t + phaseOffset);
-      const sy = Math.sin(n2 * t + phaseOffset * 0.7);
-
-      const px = (u.x * cx + v.x * sy) * radius;
-      const py = (u.y * cx + v.y * sy) * radius;
-      const pz = (u.z * cx + v.z * sy) * radius;
-
-      positions[i * 3 + 0] = px + rand(-0.01, 0.01);
-      positions[i * 3 + 1] = py + rand(-0.01, 0.01);
-      positions[i * 3 + 2] = pz + rand(-0.01, 0.01);
-
-      sizes[i] = rand(4, 8);
-      brights[i] = rand(0.55, 1.0);
-    }
-  }
+  const shape: OrbShape = opts.shape ?? "galaxie";
+  fillGeometry(shape, positions, sizes, brights);
 
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute("aSize", new THREE.BufferAttribute(sizes, 1));
@@ -356,8 +405,10 @@ export function createOrb(canvas: HTMLCanvasElement): Orb {
   const clock = new THREE.Clock();
   let spinY = 0.12;
   let spinX = 0.04;
+  let running = true;
 
   function tick(): void {
+    if (!running) return; // arrete par dispose() (changement de forme d'orbe)
     const dt = Math.min(0.05, clock.getDelta());
     const elapsed = clock.getElapsedTime();
 
@@ -388,5 +439,13 @@ export function createOrb(canvas: HTMLCanvasElement): Orb {
   }
   tick();
 
-  return { setState, setVolume, triggerDemo, setPalette };
+  function dispose(): void {
+    running = false;
+    window.removeEventListener("resize", resize);
+    geometry.dispose();
+    particleMat.dispose();
+    renderer.dispose();
+  }
+
+  return { setState, setVolume, triggerDemo, setPalette, dispose };
 }

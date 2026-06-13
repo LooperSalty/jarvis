@@ -25,6 +25,8 @@ import {
   THEME_LABELS,
   ORB_PALETTES,
   ORB_LABELS,
+  ORB_SHAPES,
+  ORB_SHAPE_LABELS,
   applyDashboardTheme,
   resolveAccent,
   ecrireConfigLocale,
@@ -42,6 +44,7 @@ function lireConfig(msg: ws.WsMessage): Partial<UiConfig> {
     accent: asString(c.accent, "#4be1ff"),
     orb_style: asString(c.orb_style, "classique"),
     orb_color: asString(c.orb_color, "#4ca8e8"),
+    orb_shape: asString(c.orb_shape, "galaxie"),
     cowork_folder: asString(c.cowork_folder, ""),
   };
 }
@@ -52,6 +55,7 @@ function mount(root: HTMLElement): Cleanup {
     accent: "#4be1ff",
     orb_style: "classique",
     orb_color: "#4ca8e8",
+    orb_shape: "galaxie",
   };
 
   // ── Panneau theme du dashboard ──
@@ -69,11 +73,15 @@ function mount(root: HTMLElement): Cleanup {
   themePanel.body.appendChild(accentRow);
   root.appendChild(themePanel.root);
 
-  // ── Panneau orbe ──
+  // ── Panneau orbe (forme + couleur) ──
   const orbPanel = panel(
-    "Couleur de Jarvis",
-    "Palette de l'orbe affichee sur l'interface principale (mise a jour en direct)."
+    "Apparence de Jarvis (l'orbe)",
+    "Forme et couleur de l'orbe — appliquees en direct sur l'interface principale."
   );
+  orbPanel.body.appendChild(el("span", "field-label", "Forme de l'orbe"));
+  const shapeGrid = el("div", "swatch-grid");
+  orbPanel.body.appendChild(shapeGrid);
+  orbPanel.body.appendChild(el("span", "field-label", "Couleur / palette"));
   const orbGrid = el("div", "swatch-grid");
   orbPanel.body.appendChild(orbGrid);
   const orbColorInput = el("input", "color-input") as HTMLInputElement;
@@ -132,6 +140,26 @@ function mount(root: HTMLElement): Cleanup {
     envoyer({ orb_style: "custom", orb_color: hex });
   }
 
+  function choisirShape(id: string): void {
+    config = { ...config, orb_shape: id };
+    ecrireConfigLocale(config);
+    renderShapes();
+    envoyer({ orb_shape: id });
+  }
+
+  function renderShapes(): void {
+    clearChildren(shapeGrid);
+    for (const id of ORB_SHAPES) {
+      const sw = el("button", "swatch") as HTMLButtonElement;
+      sw.type = "button";
+      sw.appendChild(el("span", `swatch-dot orb-shape orb-shape-${id}`));
+      sw.appendChild(el("span", "swatch-label", ORB_SHAPE_LABELS[id] || id));
+      if (config.orb_shape === id) sw.classList.add("active");
+      sw.addEventListener("click", () => choisirShape(id));
+      shapeGrid.appendChild(sw);
+    }
+  }
+
   function renderThemes(): void {
     clearChildren(themeGrid);
     for (const id of THEME_IDS) {
@@ -179,6 +207,7 @@ function mount(root: HTMLElement): Cleanup {
     config = { ...config, ...lireConfig(msg) };
     appliquerLocal();
     renderThemes();
+    renderShapes();
     renderOrbs();
   });
 
@@ -192,6 +221,7 @@ function mount(root: HTMLElement): Cleanup {
 
   // Etat initial : rendu immediat (cache deja applique par main.ts) + fetch.
   renderThemes();
+  renderShapes();
   renderOrbs();
   if (ws.isConnected()) fetchUi();
 

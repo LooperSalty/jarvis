@@ -114,6 +114,12 @@ except Exception as e:
     claude_bridge = None
     print(f"[DASHBOARD] Module claude_bridge indisponible : {e}")
 
+try:
+    from jarvis_actions import memory_sync
+except Exception as e:
+    memory_sync = None
+    print(f"[DASHBOARD] Module memory_sync indisponible : {e}")
+
 
 # ==========================================
 # CONSTANTES
@@ -164,6 +170,10 @@ CLES_GEREES: tuple[str, ...] = (
     "OPENCLAW_URL",
     "OPENCLAW_TOKEN",
     "OPENCLAW_HOOKS_TOKEN",
+    # Notion : synchronisation de la memoire vers une page Notion (section Memoire).
+    # NOTION_TOKEN = secret d'integration interne ; NOTION_PAGE_ID = page partagee.
+    "NOTION_TOKEN",
+    "NOTION_PAGE_ID",
 )
 
 # Cles SECRETES parmi CLES_GEREES : stockees dans keyring si dispo (jamais en
@@ -185,6 +195,8 @@ CLES_SECRETES: frozenset[str] = frozenset({
     # OPENCLAW_URL n'est pas un secret (adresse locale) ; les deux tokens oui.
     "OPENCLAW_TOKEN",
     "OPENCLAW_HOOKS_TOKEN",
+    # NOTION_PAGE_ID est un identifiant (non secret) ; le token d'integration oui.
+    "NOTION_TOKEN",
 })
 
 _PLACEHOLDERS = ("VOTRE_API", "VOTRE_CLE_ICI")
@@ -1476,6 +1488,74 @@ async def _h_trigger_delete(data: dict) -> dict:
 
 
 # ==========================================
+# HANDLERS — CONNECTEURS MEMOIRE (Obsidian / Drive / Notion)
+# ==========================================
+def _vault_obsidian() -> str:
+    """Chemin du vault Obsidian : cle OBSIDIAN_VAULT, sinon auto-detection."""
+    vault = (os.environ.get("OBSIDIAN_VAULT") or "").strip()
+    if vault:
+        return vault
+    try:
+        from jarvis_actions import obsidian_memory
+        return obsidian_memory.auto_detect_vault() or ""
+    except Exception:
+        return ""
+
+
+def _google_credentials_presentes() -> bool:
+    """True si credentials.json OU le token Google existe (Drive configurable)."""
+    return (REPO_DIR / "credentials.json").exists() or (REPO_DIR / "token.pickle").exists()
+
+
+def _connecteurs_memoire_statut() -> dict:
+    """Etat booleen de chaque connecteur de memoire (configure ou non)."""
+    env = _parser_env()
+    notion_token = _valeur_presente(_valeur_brute_cle("NOTION_TOKEN", env))
+    notion_page = _valeur_presente(_valeur_brute_cle("NOTION_PAGE_ID", env))
+    return {
+        "obsidian": bool(_vault_obsidian()),
+        "drive": _google_credentials_presentes(),
+        "notion": bool(notion_token and notion_page),
+    }
+
+
+async def _h_memory_connectors(data: dict) -> dict:
+    statut = await _en_executor(_connecteurs_memoire_statut)
+    return {"action": "dash_memory_connectors", "connectors": statut}
+
+
+async def _h_memory_sync(data: dict) -> dict:
+    """Synchronise la memoire vers la cible demandee (obsidian / drive / notion)."""
+    cible = str(data.get("target", "")).strip().lower()
+    if memory_sync is None:
+        return {"action": "dash_memory_sync", "target": cible, "ok": False,
+                "message": "Module de synchronisation indisponible."}
+    memoire = _appel_ctx("charger_memoire", defaut={}) or {}
+    if cible == "obsidian":
+        resume, ok = await _en_executor(memory_sync.sync_obsidian, memoire, _vault_obsidian())
+    elif cible == "drive":
+        # get_drive_service peut declencher l'autorisation OAuth (navigateur) au
+        # premier appel : on l'execute en thread pour ne pas figer l'event loop.
+        service = await _en_executor(lambda: _appel_ctx("get_drive_service"))
+        resume, ok = await _en_executor(memory_sync.backup_drive, memoire, service)
+    elif cible == "notion":
+        env = _parser_env()
+        token = _valeur_brute_cle("NOTION_TOKEN", env)
+        page = _valeur_brute_cle("NOTION_PAGE_ID", env)
+        resume, ok = await _en_executor(memory_sync.sync_notion, memoire, token, page)
+    else:
+        return {"action": "dash_memory_sync", "target": cible, "ok": False,
+                "message": f"Cible inconnue : {cible}"}
+    return {
+        "action": "dash_memory_sync",
+        "target": cible,
+        "ok": bool(ok),
+        "message": str(resume),
+        "connectors": await _en_executor(_connecteurs_memoire_statut),
+    }
+
+
+# ==========================================
 # HANDLERS — PERSONNALISATION (UI)
 # ==========================================
 async def _diffuser_config_ui(config: dict) -> None:
@@ -1511,7 +1591,7 @@ async def _h_set_ui(data: dict) -> dict:
         }
     apparence = {
         k: updates[k]
-        for k in ("theme", "accent", "orb_style", "orb_color")
+        for k in ("theme", "accent", "orb_style", "orb_color", "orb_shape")
         if k in updates
     }
     config = jarvis_ui_config.sauvegarder(apparence)
@@ -1653,6 +1733,8 @@ _HANDLERS = {
     "dash_memory_add": _h_memory_add,
     "dash_memory_delete": _h_memory_delete,
     "dash_memory_search": _h_memory_search,
+    "dash_memory_connectors": _h_memory_connectors,
+    "dash_memory_sync": _h_memory_sync,
     "dash_get_specs": _h_get_specs,
     "dash_model_reco": _h_model_reco,
     "dash_model_select": _h_model_select,

@@ -38,6 +38,8 @@ CONFIG_PATH: Path = _dossier_donnees() / "jarvis_ui_config.json"
 # Listes blanches : tout id hors de ces tuples retombe sur le defaut.
 THEMES: tuple[str, ...] = ("cyan", "violet", "emeraude", "ambre", "rose", "rouge", "custom")
 ORB_STYLES: tuple[str, ...] = ("classique", "ironman", "nebuleuse", "emeraude", "givre", "custom")
+# Forme visuelle de l'orbe (rendu Three.js) — distincte de la palette de couleur.
+ORB_SHAPES: tuple[str, ...] = ("galaxie", "oeil", "anneau")
 
 _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
@@ -46,6 +48,7 @@ DEFAUTS: dict[str, Any] = {
     "accent": "#4be1ff",
     "orb_style": "classique",
     "orb_color": "#4ca8e8",
+    "orb_shape": "galaxie",
     "cowork_folder": "",
 }
 
@@ -89,6 +92,7 @@ def _normaliser(brut: Any) -> dict[str, Any]:
         "accent": _hex_valide(src.get("accent"), DEFAUTS["accent"]),
         "orb_style": _choix_valide(src.get("orb_style"), ORB_STYLES, DEFAUTS["orb_style"]),
         "orb_color": _hex_valide(src.get("orb_color"), DEFAUTS["orb_color"]),
+        "orb_shape": _choix_valide(src.get("orb_shape"), ORB_SHAPES, DEFAUTS["orb_shape"]),
         "cowork_folder": _dossier_valide(src.get("cowork_folder")),
     }
 

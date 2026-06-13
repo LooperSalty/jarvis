@@ -7,8 +7,8 @@
  * Etats: "idle" | "listening" | "thinking" | "speaking"
  */
 
-import { createOrb, type OrbState } from "./orb";
-import { resolveOrbPalette, type UiConfig } from "./ui_theme";
+import { createOrb, type OrbState, type OrbShape } from "./orb";
+import { resolveOrbPalette, resolveOrbShape, type UiConfig } from "./ui_theme";
 import { injectVisionButton, captureFrame } from "./screen_capture";
 import "./style.css";
 
@@ -37,7 +37,33 @@ const chatArchiveListEl = document.getElementById("chat-archive-list") as HTMLDi
 const chatTitleEl = document.getElementById("chat-title") as HTMLSpanElement;
 
 // ── Orb ───────────────────────────────────────────────────────────────────────
-const orb = createOrb(canvas);
+let orbCanvas = canvas;
+let orb = createOrb(orbCanvas);
+let orbShape: OrbShape = "galaxie";
+let lastOrbState: OrbState = "idle";
+
+/**
+ * Change la FORME de l'orbe. La forme determine la geometrie (construite une
+ * fois a la creation), donc on recree l'orbe — sur un canvas NEUF pour repartir
+ * d'un contexte WebGL propre (eviter le "canvas already has a context") — puis on
+ * re-applique l'etat courant. La couleur, elle, change sans recreation.
+ */
+function setOrbShape(shape: OrbShape): void {
+  if (shape === orbShape) return;
+  orbShape = shape;
+  const fresh = document.createElement("canvas");
+  fresh.id = orbCanvas.id;
+  fresh.className = orbCanvas.className;
+  orbCanvas.replaceWith(fresh);
+  orbCanvas = fresh;
+  try {
+    orb.dispose();
+  } catch {
+    /* contexte deja perdu : on continue */
+  }
+  orb = createOrb(orbCanvas, { shape });
+  orb.setState(lastOrbState);
+}
 
 let muted = false;
 
@@ -63,10 +89,12 @@ function pywebview(): PywebviewBridge | undefined {
 
 function applyState(state: OrbState): void {
   if (muted && state !== "idle") {
+    lastOrbState = "idle";
     orb.setState("idle");
     statusEl.textContent = "";
     return;
   }
+  lastOrbState = state;
   orb.setState(state);
   statusEl.textContent = STATE_LABELS[state];
 
@@ -180,8 +208,10 @@ function connect(): void {
       }
 
       if (data.action === "dash_ui" && dataAny.config) {
-        // Couleur de l'orbe definie/changee dans le dashboard : application live.
-        orb.setPalette(resolveOrbPalette(dataAny.config as Partial<UiConfig>));
+        // Forme + couleur de l'orbe definies/changees dans le dashboard (live).
+        const cfg = dataAny.config as Partial<UiConfig>;
+        setOrbShape(resolveOrbShape(cfg));
+        orb.setPalette(resolveOrbPalette(cfg));
         return;
       }
 
