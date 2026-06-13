@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```
 jarvis/
-├── Jarvis.exe / JarvisWeb.exe / ModelAdvisor.exe  ← double-cliquables (gitignored, regenerables)
+├── Jarvis.exe / JarvisWeb.exe / ModelAdvisor.exe  ← double-cliquables (gitignored ; Jarvis/Web = onedir : exe + dossier _internal/_internal_web a cote)
 ├── build_all.bat                                  ← rebuild les 3 .exe + copie a la racine
 ├── Dockerfile / docker-compose.yml / .dockerignore ← image serveur headless (Linux)
 ├── requirements-docker.txt                        ← deps minimales Linux (PAS le freeze Windows)
@@ -61,8 +61,8 @@ build_all.bat
 scripts\build_installer.bat
 
 # Builds individuels
-python -m PyInstaller Jarvis.spec --clean --noconfirm           # Jarvis.exe ~250 MB
-python -m PyInstaller JarvisWeb.spec --clean --noconfirm        # JarvisWeb.exe ~150 MB
+python -m PyInstaller Jarvis.spec --clean --noconfirm           # onedir -> dist/Jarvis/ (Jarvis.exe + _internal/)
+python -m PyInstaller JarvisWeb.spec --clean --noconfirm        # onedir -> dist/JarvisWeb/ (JarvisWeb.exe + _internal_web/)
 cd model_advisor && python -m PyInstaller --onefile --windowed --name ModelAdvisor --clean --noconfirm model_advisor.py
 
 # Frontend seul (dev avec HMR)
@@ -212,7 +212,8 @@ Sans clé valide, `_cle_valide()` détecte les placeholders `VOTRE_API` / `VOTRE
 
 ## Pièges connus
 
-- **Persistance en mode .exe : pattern `_dossier_donnees()` OBLIGATOIRE** : en frozen le cwd est `sys._MEIPASS` (temporaire, effacé à la sortie). Tout fichier lu/écrit au runtime (`.env`, `jarvis_memoire.json`, `jarvis_historique.json`, `jarvis_mcp.json`, `token.pickle`, profil, routines...) doit être résolu à côté de l'exe via `Path(sys.executable).parent` quand `sys.frozen` (cf. `jarvis_profile._dossier_donnees`). Un chemin relatif ou `Path(__file__).parent` = données perdues à chaque fermeture du .exe.
+- **Persistance en mode .exe : pattern `_dossier_donnees()` OBLIGATOIRE** : en frozen, ne jamais se fier au cwd ni à `Path(__file__).parent` (= `_internal/` en onedir, ou l'ancien `sys._MEIPASS` temporaire effacé à la sortie en onefile). Tout fichier lu/écrit au runtime (`.env`, `jarvis_memoire.json`, `jarvis_historique.json`, `jarvis_mcp.json`, `token.pickle`, profil, routines...) doit être résolu à côté de l'exe via `Path(sys.executable).parent` quand `sys.frozen` (cf. `jarvis_profile._dossier_donnees`) — sinon données perdues à chaque fermeture du .exe.
+- **Builds onedir, deux exes UN SEUL dossier** : `Jarvis.spec`/`JarvisWeb.spec` produisent du **onedir** (et non onefile) pour éviter les faux positifs antivirus (en onefile, l'auto-extraction runtime dans un dossier temp = heuristique « dropper » → `Trojan:Win32/Wacatac.B!ml`). Les deux exes DOIVENT rester dans le même dossier (`{app}`) pour partager `.env`/mémoire/profil (`_dossier_donnees()` = `Path(sys.executable).parent`) ; ils cohabitent grâce à des `contents_directory` DISTINCTS (`_internal` pour Jarvis, `_internal_web` pour JarvisWeb). `build_all.bat` et l'étape installateur de `release.yml` déversent `dist/Jarvis/*` et `dist/JarvisWeb/*` à la racine ; l'`.iss` copie les deux `_internal*`. Ne JAMAIS revenir à `--onefile` ni activer UPX (réintroduit les FP). PyInstaller est **pinné** dans `requirements-windows.txt` (FP variables selon la version — A/B-tester sur VirusTotal avant de bumper).
 - **Les specs refusent de builder si les deps manquent** : garde-fou `find_spec` en tête de `Jarvis.spec`/`JarvisWeb.spec` (sinon PyInstaller "réussit" et produit un .exe qui crashe en ModuleNotFoundError). Installer `requirements-windows.txt` d'abord.
 - **Aucun secret dans les binaires** : `.env`, `credentials.json`, `jarvis_memoire.json` et `jarvis_home_config.py` (excludes) ne sont PAS embarqués dans les .exe — ils vivent à côté du binaire. Ne jamais les rajouter aux `datas`.
 - **Conflit de port 8765** : si une instance Python orpheline tourne, le nouveau bind échoue silencieusement et le frontend reste en "reconnexion". Vérifier avec `Get-NetTCPConnection -LocalPort 8765`.
@@ -222,7 +223,7 @@ Sans clé valide, `_cle_valide()` détecte les placeholders `VOTRE_API` / `VOTRE
 - **Ne pas amender les commits** : règle utilisateur globale, toujours créer un nouveau commit.
 - **`pc_actions` / `dev_actions` court-circuitent l'IA** : si tu ajoutes un nouveau mot-clé qui matche déjà un alias existant, la commande ne touchera jamais Gemini/Ollama. Inversement, si une commande "intelligente" est interceptée par erreur, vérifier les regex dans ces deux fichiers en premier.
 - **`jarvis_tray.py` / `jarvis_desktop.py` lancent `main2.py` en sous-process** : tuer la fenêtre tray ne tue pas forcément le backend ; vérifier `Get-Process python` si comportement bizarre au redémarrage.
-- **`Jarvis.exe` (PyInstaller) importe `main2` en thread du même process** (détection `sys.frozen`), pas de subprocess. À chaque modif de `main2.py` ou des deps, il faut rebuild : `python -m PyInstaller Jarvis.spec --clean --noconfirm`. Build ~1 min, .exe ~150 MB.
+- **`Jarvis.exe` (PyInstaller) importe `main2` en thread du même process** (détection `sys.frozen`), pas de subprocess. À chaque modif de `main2.py` ou des deps, il faut rebuild : `python -m PyInstaller Jarvis.spec --clean --noconfirm`. Build ~1 min, sortie onedir `dist/Jarvis/` (exe + `_internal/`).
 - **Mode arrière-plan du `.exe`** : `jarvis_desktop.py` crée la fenêtre webview avec `hidden=True` puis lance un client WS qui écoute `set_state` du backend. État `idle` → cache la fenêtre après 3s ; tout autre état → affiche la mini-fenêtre orbe centrée au-dessus de la barre des tâches. Menu tray "Ouvrir l'interface" affiche la fenêtre complète (980×720, ne se cache pas auto).
 - **Ne pas exclure `unittest` dans `Jarvis.spec`** : `pyparsing` (dépendance transitive de `googleapiclient`) en a besoin sinon crash au démarrage du .exe.
 - **Bundle frontend obligatoire avant build .exe** : `cd frontend && npx vite build` (skip `tsc` car pas de tsconfig.json). Le spec embarque `frontend/dist/`.

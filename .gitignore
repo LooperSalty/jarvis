@@ -96,6 +96,10 @@ dist/
 !model_advisor/ModelAdvisor.spec
 # .exe trop lourds pour git (regenerable via build_all.bat)
 *.exe
+# Dossiers de contenu PyInstaller onedir deverses a la racine par build_all.bat
+# (Jarvis.exe + _internal\ , JarvisWeb.exe + _internal_web\). Regenerables.
+/_internal/
+/_internal_web/
 apprendre/dataset_propre.jsonl
 apprendre/_learn_state.json
 apprendre/prompt_actif.txt

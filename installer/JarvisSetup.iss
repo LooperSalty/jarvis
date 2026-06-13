@@ -3,9 +3,11 @@
 ; ============================================================
 ; Compile : scripts\build_installer.bat
 ;   (ou : ISCC /DAppVersion=x.y.z installer\JarvisSetup.iss)
-; Prerequis de compilation : Jarvis.exe / JarvisWeb.exe (+ ModelAdvisor.exe
-; optionnel) presents dans {#BinDir} (la racine du repo par defaut, ou
-; passe /DBinDir=chemin). Produit installer\output\JarvisSetup-<version>.exe.
+; Prerequis de compilation (builds ONEDIR) : presents dans {#BinDir} (la racine
+; du repo par defaut, ou passe /DBinDir=chemin) -> Jarvis.exe + dossier _internal\,
+; JarvisWeb.exe + dossier _internal_web\ (optionnel), ModelAdvisor.exe (onefile,
+; optionnel). build_all.bat / release.yml y deversent dist\Jarvis\* et
+; dist\JarvisWeb\*. Produit installer\output\JarvisSetup-<version>.exe.
 ;
 ; Choix structurants :
 ; - Installation PAR UTILISATEUR ({localappdata}\Programs\Jarvis), sans admin :
@@ -102,9 +104,18 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "autostart"; Description: "{cm:AutoStartDesc}"; GroupDescription: "{cm:OptionsGroup}"; Flags: unchecked
 
 [Files]
+; Builds ONEDIR : Jarvis.exe / JarvisWeb.exe restent a la RACINE de {app} (pour
+; que _dossier_donnees() = Path(sys.executable).parent pointe sur {app} et que
+; les deux exes partagent .env / memoire / profil), et chaque exe a son dossier
+; de contenu DISTINCT (_internal / _internal_web) copie a cote. BinDir contient
+; donc Jarvis.exe + _internal\ + JarvisWeb.exe + _internal_web\ (cf. build_all.bat
+; et l'etape "Compiler l'installateur" de release.yml qui y deversent les
+; dossiers dist\Jarvis\* et dist\JarvisWeb\*).
 Source: "{#BinDir}\Jarvis.exe"; DestDir: "{app}"; Flags: ignoreversion; Components: core
+Source: "{#BinDir}\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: core
 #if HasWeb
 Source: "{#BinDir}\JarvisWeb.exe"; DestDir: "{app}"; Flags: ignoreversion; Components: web
+Source: "{#BinDir}\_internal_web\*"; DestDir: "{app}\_internal_web"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: web
 #endif
 #if HasAdvisor
 Source: "{#BinDir}\ModelAdvisor.exe"; DestDir: "{app}"; Flags: ignoreversion; Components: advisor

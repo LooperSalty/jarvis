@@ -46,6 +46,13 @@ jobs:
   build-windows:
     name: build-windows
     runs-on: windows-latest
+    # Secrets de signature / scan exposes en env pour pouvoir guarder les etapes
+    # SignPath et VirusTotal avec `if: env.X != ''` : tant que le secret n'est pas
+    # defini sur le repo, l'etape correspondante est sautee et le job se comporte
+    # exactement comme avant (binaires non signes).
+    env:
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+      VT_API_KEY: ${{ secrets.VT_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -86,11 +93,68 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-windows.txt
-          pip install pyinstaller
       - name: Build Jarvis.exe + JarvisWeb.exe
+        # Builds ONEDIR (cf. Jarvis.spec / JarvisWeb.spec) : sortie dans
+        # dist\Jarvis\ et dist\JarvisWeb\ (exe + dossier de contenu _internal*).
+        # PyInstaller est pinne dans requirements-windows.txt (pas de pip install
+        # separe) pour des builds reproductibles et un taux de FP stable.
         run: |
           python -m PyInstaller Jarvis.spec --clean --noconfirm
           python -m PyInstaller JarvisWeb.spec --clean --noconfirm
+      # --- Signature de code (SignPath Foundation) — INACTIF tant que le secret
+      # SIGNPATH_API_TOKEN n'est pas defini. Une fois le projet approuve par
+      # SignPath Foundation (https://signpath.io/solutions/open-source-community) :
+      #   1. Creer sur signpath.io le projet + une signing policy + une artifact
+      #      configuration ciblant Jarvis/Jarvis.exe et JarvisWeb/JarvisWeb.exe
+      #      dans le zip soumis ci-dessous.
+      #   2. Ajouter le secret repo SIGNPATH_API_TOKEN et la variable repo
+      #      SIGNPATH_ORGANIZATION_ID, puis ajuster les slugs (project / policy /
+      #      artifact-configuration) ci-dessous a ce qui a ete cree.
+      # La signature a lieu AVANT la compilation de l'installateur pour que les
+      # exes installes soient signes. Pour signer aussi JarvisSetup-*.exe,
+      # dupliquer ce bloc apres l'etape ISCC.
+      - name: Empaqueter les binaires a signer (SignPath)
+        if: ${{ env.SIGNPATH_API_TOKEN != '' }}
+        shell: pwsh
+        run: Compress-Archive -Path dist/Jarvis, dist/JarvisWeb -DestinationPath signpath-unsigned.zip -Force
+      - name: Upload de l'artefact non signe (SignPath)
+        if: ${{ env.SIGNPATH_API_TOKEN != '' }}
+        id: signpath-upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: signpath-unsigned
+          path: signpath-unsigned.zip
+          if-no-files-found: error
+      - name: Soumettre a SignPath et recuperer les binaires signes
+        if: ${{ env.SIGNPATH_API_TOKEN != '' }}
+        uses: SignPath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ env.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: jarvis
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: windows-onedir
+          github-artifact-id: ${{ steps.signpath-upload.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signpath-signed
+      - name: Reinjecter les binaires signes dans dist
+        if: ${{ env.SIGNPATH_API_TOKEN != '' }}
+        shell: pwsh
+        # Le zip signe revient avec la meme arborescence (Jarvis\Jarvis.exe,
+        # JarvisWeb\JarvisWeb.exe) : on l'extrait par-dessus dist\. Verifier le
+        # nom/chemin retourne par SignPath au 1er run reel et ajuster si besoin.
+        run: Expand-Archive -Path signpath-signed/signpath-unsigned.zip -DestinationPath dist -Force
+      - name: Scan VirusTotal (diagnostic faux positifs, non bloquant)
+        # INACTIF tant que le secret VT_API_KEY n'est pas defini. Mesure combien de
+        # moteurs flaguent Jarvis.exe pour suivre l'evolution des FP entre versions.
+        if: ${{ env.VT_API_KEY != '' }}
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $r = curl.exe -s --request POST --url https://www.virustotal.com/api/v3/files `
+            --header "x-apikey: $env:VT_API_KEY" --form "file=@dist/Jarvis/Jarvis.exe"
+          Write-Host $r
+          Write-Host "Analyse VirusTotal soumise — consulter le rapport via le hash du fichier sur virustotal.com"
       - name: Build ModelAdvisor.exe
         # Stdlib uniquement (tkinter/ctypes) : aucun requirement supplementaire.
         working-directory: model_advisor
@@ -102,8 +166,12 @@ jobs:
         shell: pwsh
         run: |
           $version = python -c "from jarvis_version import VERSION; print(VERSION)"
-          Copy-Item dist\Jarvis.exe, dist\JarvisWeb.exe -Destination .
-          Copy-Item model_advisor\dist\ModelAdvisor.exe -Destination .
+          # Builds ONEDIR : deverser le CONTENU de dist\Jarvis et dist\JarvisWeb a
+          # la racine (BinDir="..") -> Jarvis.exe + _internal\ et JarvisWeb.exe +
+          # _internal_web\ cote a cote, comme l'attend JarvisSetup.iss [Files].
+          Copy-Item dist\Jarvis\* -Destination . -Recurse -Force
+          Copy-Item dist\JarvisWeb\* -Destination . -Recurse -Force
+          Copy-Item model_advisor\dist\ModelAdvisor.exe -Destination . -Force
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) {
             choco install innosetup -y --no-progress
@@ -111,8 +179,10 @@ jobs:
           & $iscc /DAppVersion=$version installer\JarvisSetup.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC a echoue ($LASTEXITCODE)" }
       - name: Archive des binaires Windows
+        # Builds ONEDIR : on archive les DOSSIERS dist/Jarvis et dist/JarvisWeb
+        # (exe + _internal*), plus ModelAdvisor.exe (onefile).
         run: |
-          Compress-Archive -Path dist/Jarvis.exe,dist/JarvisWeb.exe,model_advisor/dist/ModelAdvisor.exe -DestinationPath jarvis-windows.zip
+          Compress-Archive -Path dist/Jarvis, dist/JarvisWeb, model_advisor/dist/ModelAdvisor.exe -DestinationPath jarvis-windows.zip
       - uses: actions/upload-artifact@v4
         with:
           name: windows-build
