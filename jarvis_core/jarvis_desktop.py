@@ -68,8 +68,13 @@ JARVIS_URL_DASHBOARD = "http://127.0.0.1:5173/dashboard.html"
 WS_URL = "ws://127.0.0.1:8765"
 
 FROZEN = getattr(sys, "frozen", False)
-ROOT = Path(getattr(sys, "_MEIPASS", str(Path(__file__).parent.resolve())))
-BACKEND_CMD = [sys.executable, "-u", str(ROOT / "main2.py")]
+# Frozen : ROOT = _MEIPASS (tout aplati). Dev : ce fichier est dans jarvis_core/,
+# ROOT doit pointer la RACINE du repo (remonte d'un cran) ; main2.py y est dans
+# jarvis_core/ (cf. BACKEND_CMD), tandis que frontend/assets sont a la racine.
+ROOT = Path(getattr(sys, "_MEIPASS", str(Path(__file__).parent.parent.resolve())))
+# Subprocess (dev uniquement) : main2 est dans jarvis_core/. En frozen, BACKEND_CMD
+# n'est pas utilise (main2 importe en thread, cf. _start_backend_inprocess).
+BACKEND_CMD = [sys.executable, "-u", str(ROOT / "jarvis_core" / "main2.py")]
 
 LOG_PATH = Path(tempfile.gettempdir()) / "jarvis_desktop.log"
 ICON_PATH = ROOT / "assets" / "jarvis.ico"

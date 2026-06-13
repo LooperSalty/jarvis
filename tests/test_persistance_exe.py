@@ -2,7 +2,8 @@
 
 En mode PyInstaller (sys.frozen), les donnees doivent etre lues/ecrites a cote
 de l'executable — jamais dans sys._MEIPASS (temporaire, efface a la sortie).
-En mode dev, elles restent a la racine du repo (dossier du module).
+En mode dev, elles restent a la RACINE du repo (les modules vivent dans
+jarvis_core/, donc _dossier_donnees remonte d'un cran : parent de jarvis_core/).
 
 main2._dossier_donnees n'est pas teste ici : importer main2 declenche tout le
 demarrage (clients IA, audio). Le pattern est identique a celui des modules
@@ -22,8 +23,11 @@ import jarvis_profile
 
 @pytest.mark.parametrize("module", [jarvis_dashboard_api, jarvis_profile])
 def test_dossier_donnees_mode_dev(module):
-    """Sans sys.frozen, le dossier de donnees est celui du module (racine repo)."""
-    attendu = Path(module.__file__).resolve().parent
+    """Sans sys.frozen, le dossier de donnees est la racine du repo.
+
+    Les modules sont dans jarvis_core/, donc la racine = parent de leur dossier.
+    """
+    attendu = Path(module.__file__).resolve().parent.parent
     assert module._dossier_donnees() == attendu
 
 

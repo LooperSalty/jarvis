@@ -131,7 +131,7 @@ def _dossier_donnees() -> Path:
     jarvis_profile._dossier_donnees."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parent
+    return Path(__file__).resolve().parent.parent  # jarvis_core/ -> racine du repo (dev)
 
 
 REPO_DIR = _dossier_donnees()

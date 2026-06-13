@@ -44,4 +44,4 @@ ENV JARVIS_HEADLESS=1 \
 # 5173 = UI orbe + dashboard | 8765 = WebSocket | 8080 = UI mobile
 EXPOSE 5173 8765 8080
 
-CMD ["python", "main2.py"]
+CMD ["python", "jarvis_core/main2.py"]

@@ -137,8 +137,10 @@ excludes = [
 block_cipher = None
 
 a = Analysis(
-    ['jarvis_desktop.py'],
-    pathex=[ROOT],
+    ['jarvis_core/jarvis_desktop.py'],
+    # jarvis_core/ ajoute au pathex : les modules core sont importes A PLAT
+    # (import jarvis_config, jarvis_dashboard_api...) depuis jarvis_core/.
+    pathex=[ROOT, os.path.join(ROOT, 'jarvis_core')],
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,

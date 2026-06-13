@@ -10,15 +10,18 @@ jarvis/
 ├── build_all.bat                                  ← rebuild les 3 .exe + copie a la racine
 ├── Dockerfile / docker-compose.yml / .dockerignore ← image serveur headless (Linux)
 ├── requirements-docker.txt                        ← deps minimales Linux (PAS le freeze Windows)
-├── main2.py                                       ← gros entry point (backend, WS, voix, IA)
-├── jarvis_desktop.py / jarvis_web.py              ← entries des 2 modes Jarvis
-├── jarvis_brain_local.py                          ← cerveau local Ollama (extrait de main2.py)
-├── jarvis_profile.py                              ← profil utilisateur enrichi (famille, adresse, habitudes)
-├── jarvis_ui_config.py                            ← config UI persistante (thème, couleur de l'orbe, dossier Cowork)
-├── jarvis_security.py / jarvis_secrets.py         ← validation entrees + gestion clés/.env
-├── jarvis_version.py                              ← version + check_update (release GitHub par tag)
-├── jarvis_dashboard_api.py                        ← routeur WS des messages dash_* (app de configuration)
-├── Jarvis.spec / JarvisWeb.spec                   ← specs PyInstaller
+├── jarvis_core/                                   ← TOUS les modules Python (lancer via `python jarvis_core/main2.py`). Dossier source PLAT ajouté à sys.path — PAS un package : imports à plat (`from jarvis_config import …`).
+│   ├── main2.py                                   ← gros entry point (backend, WS, voix, IA)
+│   ├── jarvis_desktop.py / jarvis_web.py          ← entries des 2 modes Jarvis
+│   ├── jarvis_config.py                           ← USER_NAME + chargement .env précoce
+│   ├── jarvis_brain_local.py                      ← cerveau local Ollama (extrait de main2.py)
+│   ├── jarvis_profile.py                          ← profil utilisateur enrichi (famille, adresse, habitudes)
+│   ├── jarvis_ui_config.py                        ← config UI persistante (thème, couleur de l'orbe, dossier Cowork)
+│   ├── jarvis_security.py / jarvis_secrets.py     ← validation entrees + gestion clés/.env
+│   ├── jarvis_version.py                          ← version + check_update (release GitHub par tag)
+│   ├── jarvis_dashboard_api.py                    ← routeur WS des messages dash_* (app de configuration)
+│   └── jarvis_home_config.py + _example.py        ← config domotique perso (gitignoré) + modèle versionné
+├── Jarvis.spec / JarvisWeb.spec                   ← specs PyInstaller (entry = jarvis_core/…, pathex inclut jarvis_core/)
 ├── jarvis_actions/                                ← package modules d'actions importes par main2
 │   ├── pc_actions.py / dev_actions.py
 │   ├── claude_bridge.py / obsidian_memory.py
@@ -50,10 +53,10 @@ jarvis/
 
 ```bash
 # Solution 1 : double-clique sur Jarvis.exe / JarvisWeb.exe / ModelAdvisor.exe (a la racine)
-# Solution 2 : en dev (main2 directement)
-python main2.py                       # backend + Vite + ouvre navigateur
-python jarvis_desktop.py              # mode arriere-plan (system tray + mini orbe)
-python jarvis_web.py                  # backend + ouvre navigateur (sans Vite, sert dist/)
+# Solution 2 : en dev — les modules Python sont dans jarvis_core/ (lancer DEPUIS la racine)
+python jarvis_core/main2.py           # backend + Vite + ouvre navigateur
+python jarvis_core/jarvis_desktop.py  # mode arriere-plan (system tray + mini orbe)
+python jarvis_core/jarvis_web.py      # backend + ouvre navigateur (sans Vite, sert dist/)
 python scripts/jarvis_tray.py         # alternative system tray (lance main2 en sous-process)
 
 # Build des 3 .exe + copie a la racine (necessite frontend/dist deja build)
@@ -81,7 +84,7 @@ cd frontend && npm install
 # (ResolutionImpossible). requirements-windows.txt est la liste curatée.
 
 # Mode 100% local (force Ollama, ignore les clés cloud)
-FORCE_OLLAMA=1 python main2.py
+FORCE_OLLAMA=1 python jarvis_core/main2.py
 ollama serve && ollama pull llama3.2:3b
 
 # Docker (mode serveur headless — pas de micro/audio/GUI, STT/TTS côté navigateur)
@@ -91,7 +94,7 @@ docker compose --profile local up -d --build    # + Ollama embarqué (100% local
 # Ports publiés : 5173 (orbe+dashboard), 8080 (mobile), 8765 (WebSocket).
 ```
 
-Le `.bat` `DÉMARRER_JARVIS.bat` (non versionné) contient un chemin Python codé en dur et n'est pas portable — utilise `python main2.py` directement (ou `scripts/Lancer_Jarvis.bat` qui est plus simple).
+Le `.bat` `DÉMARRER_JARVIS.bat` (non versionné) contient un chemin Python codé en dur et n'est pas portable — utilise `python jarvis_core/main2.py` directement (ou `scripts/Lancer_Jarvis.bat` qui est plus simple).
 
 Tests : suite **pytest** (158 tests dans `tests/`, config `pytest.ini` → `testpaths=tests`). Lancer avec `python -m pytest`. CI GitHub Actions (`.github/workflows/ci.yml`) exécute 3 jobs sur chaque PR : `python` (pytest), `frontend` (build Vite), `secrets` (scan de secrets). Pas de linter configuré. Étape de build frontend : `cd frontend && npm run build` (Vite production).
 
@@ -218,6 +221,7 @@ Sans clé valide, `_cle_valide()` détecte les placeholders `VOTRE_API` / `VOTRE
 
 ## Pièges connus
 
+- **Modules Python dans `jarvis_core/` (dossier source PLAT, pas un package)** : tous les `.py` du cœur (main2, jarvis_config, jarvis_dashboard_api, jarvis_profile, jarvis_version, jarvis_desktop, jarvis_web…) vivent dans `jarvis_core/`. On garde les imports **à plat** (`from jarvis_config import …`) : `jarvis_core/` est ajouté à `sys.path`, il n'y a **PAS** de `__init__.py` ni d'imports `jarvis_core.X`. En dev, lancer **depuis la racine** (`python jarvis_core/main2.py`) ; les entry-points (main2/desktop/web) ajoutent `jarvis_core/` ET la racine à sys.path (la racine pour `jarvis_actions`/`jarvis_skills`/`jarvis_home_config`). Tooling : garder les **noms plats** — specs (`pathex` inclut `jarvis_core/`, hiddenimports/excludes en noms plats), CI/installateur (`sys.path.insert(0,'jarvis_core')` ou `jarvis_core\jarvis_version.py`), tests (`pytest.ini` `pythonpath = . jarvis_core` + `tests/conftest.py`). **`_dossier_donnees()` en dev remonte `.parent.parent`** (jarvis_core/ → racine) pour garder `.env`/mémoire/profil/`frontend`/`mobile` à la racine ; en frozen, PyInstaller aplatit tout, donc `sys.executable` ET `__file__`(=`_MEIPASS`) restent inchangés. Nouveau module core → le placer dans `jarvis_core/`, et toute résolution `Path(__file__).parent` qui visait la racine doit remonter d'un cran **en dev uniquement**.
 - **Persistance en mode .exe : pattern `_dossier_donnees()` OBLIGATOIRE** : en frozen, ne jamais se fier au cwd ni à `Path(__file__).parent` (= `_internal/` en onedir, ou l'ancien `sys._MEIPASS` temporaire effacé à la sortie en onefile). Tout fichier lu/écrit au runtime (`.env`, `jarvis_memoire.json`, `jarvis_historique.json`, `jarvis_mcp.json`, `token.pickle`, profil, routines...) doit être résolu à côté de l'exe via `Path(sys.executable).parent` quand `sys.frozen` (cf. `jarvis_profile._dossier_donnees`) — sinon données perdues à chaque fermeture du .exe.
 - **Builds onedir, deux exes UN SEUL dossier** : `Jarvis.spec`/`JarvisWeb.spec` produisent du **onedir** (et non onefile) pour éviter les faux positifs antivirus (en onefile, l'auto-extraction runtime dans un dossier temp = heuristique « dropper » → `Trojan:Win32/Wacatac.B!ml`). Les deux exes DOIVENT rester dans le même dossier (`{app}`) pour partager `.env`/mémoire/profil (`_dossier_donnees()` = `Path(sys.executable).parent`) ; ils cohabitent grâce à des `contents_directory` DISTINCTS (`_internal` pour Jarvis, `_internal_web` pour JarvisWeb). `build_all.bat` et l'étape installateur de `release.yml` déversent `dist/Jarvis/*` et `dist/JarvisWeb/*` à la racine ; l'`.iss` copie les deux `_internal*`. Ne JAMAIS revenir à `--onefile` ni activer UPX (réintroduit les FP). PyInstaller est **pinné** dans `requirements-windows.txt` (FP variables selon la version — A/B-tester sur VirusTotal avant de bumper).
 - **Les specs refusent de builder si les deps manquent** : garde-fou `find_spec` en tête de `Jarvis.spec`/`JarvisWeb.spec` (sinon PyInstaller "réussit" et produit un .exe qui crashe en ModuleNotFoundError). Installer `requirements-windows.txt` d'abord.
