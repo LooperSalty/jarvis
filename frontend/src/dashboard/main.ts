@@ -23,6 +23,32 @@ if (!appRoot) {
   throw new Error("Element #app introuvable dans dashboard.html");
 }
 
+// ── Repli flex-gap pour QtWebEngine (Chromium 83) ─────────────────────────────
+// La fenetre native du configurateur (jarvis_desktop.py -> QWebEngineView, Qt
+// 5.15.2 = Chromium 83) n'implemente PAS la propriete `gap` sur les conteneurs
+// flex (seulement sur grid, OK depuis Chromium 66). Sans repli, tout l'espacement
+// flex du dashboard s'effondre a 0 (pastilles collees au texte, formulaires
+// serres). On detecte l'absence et on pose .no-flex-gap sur <html> : le CSS
+// reproduit alors le gap par des marges equivalentes. Dans un navigateur moderne
+// la classe n'est pas posee -> le `gap` natif est conserve (aucune regression).
+function flexGapSupported(): boolean {
+  const probe = document.createElement("div");
+  probe.style.display = "flex";
+  probe.style.flexDirection = "column";
+  probe.style.gap = "1px";
+  probe.style.position = "absolute";
+  probe.style.visibility = "hidden";
+  probe.appendChild(document.createElement("div"));
+  probe.appendChild(document.createElement("div"));
+  document.body.appendChild(probe);
+  const supported = probe.scrollHeight === 1; // 2 enfants 0px + 1px de gap = 1
+  probe.remove();
+  return supported;
+}
+if (!flexGapSupported()) {
+  document.documentElement.classList.add("no-flex-gap");
+}
+
 // ── Construction du layout ────────────────────────────────────────────────────
 
 const sidebar = el("aside", "sidebar");
