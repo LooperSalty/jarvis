@@ -713,9 +713,12 @@ BARGE_IN   = os.getenv("JARVIS_BARGE_IN", "0") == "1"
 
 # Flags d'activation (defauts preservent le comportement actuel).
 # JARVIS_RESUME_HISTORIQUE : "1" (defaut) = resume l'historique long.
-# JARVIS_MEMOIRE_PROACTIVE : "1" = extrait des faits durables (defaut OFF).
+# JARVIS_MEMOIRE_PROACTIVE : "1" (defaut) = extrait en tache de fond les faits
+#   durables sur l'utilisateur (prenom, gouts, materiel, proches...) apres chaque
+#   echange, pour que Jarvis se souvienne de son utilisateur d'une session a
+#   l'autre. Mettre "0" pour desactiver (economise un appel LLM par echange).
 RESUME_HISTORIQUE = os.getenv("JARVIS_RESUME_HISTORIQUE", "1") == "1"
-MEMOIRE_PROACTIVE = os.getenv("JARVIS_MEMOIRE_PROACTIVE", "0") == "1"
+MEMOIRE_PROACTIVE = os.getenv("JARVIS_MEMOIRE_PROACTIVE", "1") == "1"
 
 try:
     import jarvis_profile
