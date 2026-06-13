@@ -39,6 +39,7 @@ jarvis/
 ├── tests/                                         ← suite pytest (158 tests, 13 fichiers)
 ├── scripts/                                       ← entries secondaires
 │   ├── jarvis_tray.py / jarvis_notify.py / Lancer_Jarvis.bat
+│   ├── jcode.cmd                                  ← ouvre une session Claude Code interactive (tous les outils) ; a copier sur le PATH (le nom `jarvis` est pris par le package OpenJarvis)
 │   ├── build_installer.bat                        ← compile JarvisSetup-<version>.exe (Inno Setup requis)
 ├── .github/workflows/                             ← ci.yml (python+frontend+secrets) + release.yml (tag → .exe/installateur/macOS)
 ├── README.md / README.en.md                       ← doc utilisateur FR / EN (garder les deux synchronisees)
