@@ -730,6 +730,9 @@ try:
         # pour application en live (la page orbe ecoute l'action "dash_ui").
         # Liaison tardive : _diffuser_payload_ui est defini plus bas.
         "diffuser_ui": lambda payload: _diffuser_payload_ui(payload),
+        # Service Google Drive pour la sauvegarde de la memoire (section Memoire).
+        # Liaison tardive ; peut declencher l'autorisation OAuth au premier appel.
+        "get_drive_service": lambda: get_drive_service(),
     })
 except Exception as e:
     print(f"[DASHBOARD] Module jarvis_dashboard_api desactive : {e}")

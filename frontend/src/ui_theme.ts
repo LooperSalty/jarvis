@@ -8,13 +8,14 @@
  * - orb_style/orb_color -> palette des 4 etats de l'orbe (Orb.setPalette)
  */
 
-import type { OrbState } from "./orb";
+import type { OrbState, OrbShape } from "./orb";
 
 export interface UiConfig {
   theme: string;
   accent: string;
   orb_style: string;
   orb_color: string;
+  orb_shape: string;
   cowork_folder?: string;
 }
 
@@ -38,6 +39,26 @@ export const THEME_LABELS: Record<string, string> = {
   rose: "Rose",
   rouge: "Rouge",
   custom: "Personnalisé",
+};
+
+/** Fond [bg-0, bg-1] par theme : teinte sombre l'ambiance pour que chaque
+ *  theme soit VISUELLEMENT distinct (pas juste l'accent). */
+export const THEME_BG: Record<string, [string, string]> = {
+  cyan: ["#04060c", "#0a101c"],
+  violet: ["#07050e", "#130a1e"],
+  emeraude: ["#040b08", "#0a1a14"],
+  ambre: ["#0b0703", "#1a1208"],
+  rose: ["#0b050c", "#190a16"],
+  rouge: ["#0b0505", "#190a0a"],
+};
+
+/** Formes d'orbe disponibles (doivent rester en phase avec OrbShape + Python). */
+export const ORB_SHAPES: OrbShape[] = ["galaxie", "oeil", "anneau"];
+
+export const ORB_SHAPE_LABELS: Record<string, string> = {
+  galaxie: "Galaxie",
+  oeil: "Œil",
+  anneau: "Anneau",
 };
 
 /** Palettes d'orbe pretes a l'emploi (4 couleurs par etat). */
@@ -110,7 +131,14 @@ export function resolveAccent(cfg: Partial<UiConfig>): string {
   return THEME_ACCENTS[cfg.theme || "cyan"] || THEME_ACCENTS.cyan;
 }
 
-/** Applique le theme du dashboard via les variables CSS (--accent & derives). */
+/** Forme d'orbe effective pour une config (repli sur galaxie). */
+export function resolveOrbShape(cfg: Partial<UiConfig>): OrbShape {
+  const s = (cfg.orb_shape || "galaxie") as OrbShape;
+  return ORB_SHAPES.includes(s) ? s : "galaxie";
+}
+
+/** Applique le theme du dashboard via les variables CSS (accent + fond). Chaque
+ *  theme change l'accent ET la teinte du fond pour un rendu nettement distinct. */
 export function applyDashboardTheme(cfg: Partial<UiConfig>): void {
   const accent = resolveAccent(cfg);
   const [r, g, b] = hexToRgb(accent);
@@ -119,6 +147,14 @@ export function applyDashboardTheme(cfg: Partial<UiConfig>): void {
   root.setProperty("--accent-dim", `rgba(${r}, ${g}, ${b}, 0.12)`);
   root.setProperty("--accent-border", `rgba(${r}, ${g}, ${b}, 0.45)`);
   root.setProperty("--panel-border", `rgba(${r}, ${g}, ${b}, 0.18)`);
+
+  const theme = cfg.theme || "cyan";
+  const [bg0, bg1] =
+    theme !== "custom" && THEME_BG[theme]
+      ? THEME_BG[theme]
+      : [shade(accent, -0.95), shade(accent, -0.88)];
+  root.setProperty("--bg-0", bg0);
+  root.setProperty("--bg-1", bg1);
 }
 
 const LS_KEY = "jarvis_ui_config";
