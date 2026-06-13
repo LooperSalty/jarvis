@@ -726,6 +726,10 @@ try:
         # a liaison tardive : _executer_commande_proactive est defini plus bas
         # dans le module mais resolu seulement a l'appel.
         "executer_commande": lambda texte: _executer_commande_proactive(texte),
+        # Diffusion d'une config UI (theme/couleur de l'orbe) a TOUS les clients
+        # pour application en live (la page orbe ecoute l'action "dash_ui").
+        # Liaison tardive : _diffuser_payload_ui est defini plus bas.
+        "diffuser_ui": lambda payload: _diffuser_payload_ui(payload),
     })
 except Exception as e:
     print(f"[DASHBOARD] Module jarvis_dashboard_api desactive : {e}")
@@ -982,6 +986,18 @@ async def send_web_volume(volume):
     cibles = _clients_diffusion()
     if cibles:
         message = json.dumps({"action": "set_volume", "volume": round(volume, 3)})
+        await asyncio.gather(*[ws.send(message) for ws in cibles], return_exceptions=True)
+
+
+async def _diffuser_payload_ui(payload):
+    """Diffuse un payload JSON brut a tous les clients authentifies (orbe incluse).
+
+    Sert au dashboard pour pousser la config UI (theme/couleur de l'orbe) en
+    live : la page orbe ecoute l'action "dash_ui" et applique la palette sans
+    rechargement. Best-effort (gather avec return_exceptions)."""
+    cibles = _clients_diffusion()
+    if cibles and isinstance(payload, dict):
+        message = json.dumps(payload)
         await asyncio.gather(*[ws.send(message) for ws in cibles], return_exceptions=True)
 
 

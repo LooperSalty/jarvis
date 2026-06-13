@@ -18,6 +18,8 @@ import { sectionChat } from "./sections_chat";
 import { sectionAutomation } from "./sections_automation";
 import { sectionConnectors } from "./sections_connectors";
 import { sectionModel } from "./sections_model";
+import { sectionPersonnalisation } from "./sections_personnalisation";
+import { sectionCowork } from "./sections_cowork";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -174,4 +176,6 @@ export const SECTIONS: readonly Section[] = [
   sectionAutomation,
   sectionConnectors,
   sectionModel,
+  sectionPersonnalisation,
+  sectionCowork,
 ];

@@ -44,11 +44,19 @@ def jours_depuis_derniere_session() -> float | None:
     return delta.total_seconds() / 86400.0
 
 
-def lancer_claude_code(prompt: str, timeout_s: float = 60.0) -> tuple[str, bool]:
-    """Lance Claude Code en mode non-interactif et renvoie sa reponse texte."""
+def lancer_claude_code(
+    prompt: str, timeout_s: float = 60.0, cwd: str | None = None
+) -> tuple[str, bool]:
+    """Lance Claude Code en mode non-interactif et renvoie sa reponse texte.
+
+    `cwd` (optionnel) : dossier de travail dans lequel executer Claude Code —
+    utilise par le mode Cowork pour confier une tache dans un projet precis.
+    Un cwd inexistant est ignore (Claude tourne alors dans le dossier courant).
+    """
     cli = shutil.which("claude")
     if not cli:
         return f"Claude Code n'est pas installe ou n'est pas dans le PATH, {USER_NAME}.", False
+    dossier = cwd if (cwd and os.path.isdir(cwd)) else None
     try:
         result = subprocess.run(
             [cli, "--print", prompt],
@@ -56,6 +64,7 @@ def lancer_claude_code(prompt: str, timeout_s: float = 60.0) -> tuple[str, bool]
             text=True,
             timeout=timeout_s,
             shell=False,
+            cwd=dossier,
         )
         if result.returncode == 0:
             return result.stdout.strip() or "(reponse vide)", True

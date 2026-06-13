@@ -2,11 +2,19 @@ import * as THREE from "three";
 
 export type OrbState = "idle" | "listening" | "thinking" | "speaking";
 
+/** Palette de l'orbe : une couleur "#rrggbb" par etat (partielle acceptee). */
+export type OrbPalette = Partial<Record<OrbState, string>>;
+
 export interface Orb {
   setState(state: OrbState): void;
   setVolume(volume: number): void;
   triggerDemo(): void;
+  /** Remplace la couleur d'un ou plusieurs etats (personnalisation). */
+  setPalette(palette: OrbPalette): void;
 }
+
+const _HEX_RE = /^#[0-9a-fA-F]{6}$/;
+const _STATES: OrbState[] = ["idle", "listening", "thinking", "speaking"];
 
 const STATE_COLOR: Record<OrbState, THREE.Color> = {
   idle: new THREE.Color(0x4ca8e8),
@@ -264,7 +272,18 @@ export function createOrb(canvas: HTMLCanvasElement): Orb {
   // makeFlareTexture reste defini mais inutilise.
   void makeFlareTexture;
 
-  const targetColor = STATE_COLOR.idle.clone();
+  // Palette MUTABLE (copie des couleurs par defaut) : setPalette la remplace
+  // pour la personnalisation. On garde l'etat courant pour re-cibler la couleur
+  // immediatement quand la palette change.
+  const palette: Record<OrbState, THREE.Color> = {
+    idle: STATE_COLOR.idle.clone(),
+    listening: STATE_COLOR.listening.clone(),
+    thinking: STATE_COLOR.thinking.clone(),
+    speaking: STATE_COLOR.speaking.clone(),
+  };
+  let currentState: OrbState = "idle";
+
+  const targetColor = palette.idle.clone();
   let targetSpinY = 0.12;
   let targetSpinX = 0.04;
   let targetCoreIntensity = 0.85;
@@ -274,7 +293,8 @@ export function createOrb(canvas: HTMLCanvasElement): Orb {
   let targetVolume = 0;
 
   function setState(state: OrbState): void {
-    targetColor.copy(STATE_COLOR[state]);
+    currentState = state;
+    targetColor.copy(palette[state]);
     switch (state) {
       case "idle":
         targetSpinY = 0.1;
@@ -309,6 +329,17 @@ export function createOrb(canvas: HTMLCanvasElement): Orb {
 
   function triggerDemo(): void {
     demoUntil = performance.now() + 2500;
+  }
+
+  function setPalette(p: OrbPalette): void {
+    for (const state of _STATES) {
+      const hex = p[state];
+      if (typeof hex === "string" && _HEX_RE.test(hex)) {
+        palette[state].set(hex);
+      }
+    }
+    // Re-cible la couleur de l'etat courant : l'animation lerp en douceur.
+    targetColor.copy(palette[currentState]);
   }
 
   function resize(): void {
@@ -357,5 +388,5 @@ export function createOrb(canvas: HTMLCanvasElement): Orb {
   }
   tick();
 
-  return { setState, setVolume, triggerDemo };
+  return { setState, setVolume, triggerDemo, setPalette };
 }

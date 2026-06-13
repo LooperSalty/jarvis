@@ -14,6 +14,7 @@ jarvis/
 ├── jarvis_desktop.py / jarvis_web.py              ← entries des 2 modes Jarvis
 ├── jarvis_brain_local.py                          ← cerveau local Ollama (extrait de main2.py)
 ├── jarvis_profile.py                              ← profil utilisateur enrichi (famille, adresse, habitudes)
+├── jarvis_ui_config.py                            ← config UI persistante (thème, couleur de l'orbe, dossier Cowork)
 ├── jarvis_security.py / jarvis_secrets.py         ← validation entrees + gestion clés/.env
 ├── jarvis_version.py                              ← version + check_update (release GitHub par tag)
 ├── jarvis_dashboard_api.py                        ← routeur WS des messages dash_* (app de configuration)
@@ -153,7 +154,9 @@ Deux mémoires distinctes :
 
 ### App de configuration (dashboard)
 
-Page Vite séparée `frontend/dashboard.html` (sources `frontend/src/dashboard/`), accessible sur `http://localhost:5173/dashboard.html`, via le lien ⚙ de l'orbe, ou les entrées "Configuration" des menus tray. 6 sections : Vue d'ensemble (clés API présentes/absentes — jamais les valeurs —, intégrations, nom utilisateur), Profil (famille/adresse/habitudes/routines → injecté dans le system prompt par `jarvis_profile.contexte_profil()`), Mémoire (graphe d3-force sur canvas via `graph.ts` + CRUD), Chat (réutilise `text_command`/`chat_message`), Connecteurs (serveurs MCP + skills), Modèle IA (specs PC + reco Ollama).
+Page Vite séparée `frontend/dashboard.html` (sources `frontend/src/dashboard/`), accessible sur `http://localhost:5173/dashboard.html`, via le lien ⚙ de l'orbe, ou les entrées "Configuration" des menus tray. 8 sections : Vue d'ensemble (clés API présentes/absentes — jamais les valeurs —, intégrations, nom utilisateur), Profil (famille/adresse/habitudes/routines → injecté dans le system prompt par `jarvis_profile.contexte_profil()`), Mémoire (graphe d3-force sur canvas via `graph.ts` + CRUD), Chat (réutilise `text_command`/`chat_message`), Connecteurs (serveurs MCP + skills), Modèle IA (specs PC + reco Ollama), **Personnalisation** (thème/accent du dashboard + couleur/style de l'orbe), **Cowork** (dossier de travail + délégation de tâche à Claude Code dans ce dossier).
+
+- **Personnalisation / Cowork** (`sections_personnalisation.ts` / `sections_cowork.ts`) : persistés dans `jarvis_ui_config.json` (gitignoré, validé par `jarvis_ui_config.py` : liste blanche de thèmes/styles, regex couleur, existence du dossier). Le couple thème→accent et style→palette d'orbe est centralisé dans `frontend/src/ui_theme.ts` (partagé entre la page orbe et le dashboard). Le thème du dashboard s'applique via les variables CSS (`--accent` & dérivés) ; la couleur de l'orbe est **diffusée en live** à la page orbe par le backend (`dash_ui` via le callable `diffuser_ui` injecté dans `init_api`), `orb.setPalette` l'appliquant sans rechargement. Le Cowork lance Claude Code dans le dossier via `claude_bridge.lancer_claude_code(prompt, cwd=...)`.
 
 - **Protocole** : tout passe par le WS 8765, messages `dash_*` (contrat complet en tête de `jarvis_dashboard_api.py` et `frontend/src/dashboard/ws.ts`).
 - **`jarvis_dashboard_api.py`** : routeur injecté par `init_api(contexte)` depuis main2 (callables mémoire + user_name). Écrit le `.env` ATOMIQUEMENT avec liste blanche de clés (`CLES_GEREES`) ; ne renvoie JAMAIS une valeur de clé au client (booléens uniquement). `restart_required` devient `True` après tout `dash_set_env`.
@@ -197,7 +200,7 @@ GEMINI_API_KEY, YOUTUBE_API_KEY, XAI_API_KEY, HA_URL, HA_TOKEN, SERPAPI_API_KEY,
 
 **Config Home Assistant perso** : les entités domotique (`PIECES_LUMIERES`, `PIECES_CAPTEURS`, `APPAREILS_BATTERIE`, etc.) sont externalisées dans `jarvis_home_config.py` (**gitignoré**, valeurs réelles) avec repli auto sur `jarvis_home_config_example.py` (générique, versionné). `main2.py` les importe via `try/except ImportError`. Ne jamais committer `jarvis_home_config.py`.
 
-**Données perso gitignorées avec modèle versionné** : `jarvis_profile.json` (famille, adresse, habitudes — modèle `jarvis_profile_example.json`), `jarvis_mcp.json` (modèle `jarvis_mcp_example.json`), `jarvis_skills/skills_config.json` (état actif/inactif des skills). Ne jamais les committer ni mettre de vraies données dans les exemples.
+**Données perso gitignorées avec modèle versionné** : `jarvis_profile.json` (famille, adresse, habitudes — modèle `jarvis_profile_example.json`), `jarvis_mcp.json` (modèle `jarvis_mcp_example.json`), `jarvis_ui_config.json` (thème, couleur de l'orbe, dossier Cowork — modèle `jarvis_ui_config_example.json`), `jarvis_skills/skills_config.json` (état actif/inactif des skills). Ne jamais les committer ni mettre de vraies données dans les exemples.
 
 Variables d'env optionnelles :
 - `JARVIS_USER_NAME` — prénom utilisé par Jarvis (défaut `Monsieur`)

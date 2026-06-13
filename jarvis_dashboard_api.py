@@ -102,6 +102,18 @@ except Exception as e:
     jarvis_version = None
     print(f"[DASHBOARD] Module jarvis_version indisponible : {e}")
 
+try:
+    import jarvis_ui_config
+except Exception as e:
+    jarvis_ui_config = None
+    print(f"[DASHBOARD] Module jarvis_ui_config indisponible : {e}")
+
+try:
+    from jarvis_actions import claude_bridge
+except Exception as e:
+    claude_bridge = None
+    print(f"[DASHBOARD] Module claude_bridge indisponible : {e}")
+
 
 # ==========================================
 # CONSTANTES
@@ -1464,6 +1476,168 @@ async def _h_trigger_delete(data: dict) -> dict:
 
 
 # ==========================================
+# HANDLERS — PERSONNALISATION (UI)
+# ==========================================
+async def _diffuser_config_ui(config: dict) -> None:
+    """Pousse la config UI a TOUS les clients (orbe incluse) pour appliquer la
+    couleur/le theme en live, sans rechargement. No-op si main2 n'a pas injecte
+    de diffuseur (le client recharge alors la couleur a sa prochaine connexion)."""
+    diffuseur = _CTX.get("diffuser_ui")
+    if not callable(diffuseur):
+        return
+    try:
+        await _attendre_si_besoin(diffuseur({"action": "dash_ui", "config": config}))
+    except Exception as e:
+        print(f"[DASHBOARD] Diffusion config UI echouee : {e}")
+
+
+async def _h_get_ui(data: dict) -> dict:
+    if jarvis_ui_config is None:
+        return {"action": "dash_ui", "config": {}, "error": "Module jarvis_ui_config indisponible"}
+    return {"action": "dash_ui", "config": jarvis_ui_config.charger()}
+
+
+async def _h_set_ui(data: dict) -> dict:
+    """Enregistre les reglages d'apparence (theme/accent/orbe). Le dossier Cowork
+    a son propre handler (dash_set_cowork) — ici on ignore tout autre champ."""
+    if jarvis_ui_config is None:
+        return {"action": "dash_ui", "config": {}, "error": "Module jarvis_ui_config indisponible"}
+    updates = data.get("updates")
+    if not isinstance(updates, dict):
+        return {
+            "action": "dash_ui",
+            "config": jarvis_ui_config.charger(),
+            "error": "Champ 'updates' manquant ou invalide",
+        }
+    apparence = {
+        k: updates[k]
+        for k in ("theme", "accent", "orb_style", "orb_color")
+        if k in updates
+    }
+    config = jarvis_ui_config.sauvegarder(apparence)
+    await _diffuser_config_ui(config)
+    return {"action": "dash_ui", "config": config}
+
+
+# ==========================================
+# HANDLERS — COWORK
+# ==========================================
+def _claude_dispo() -> bool:
+    """True si le CLI 'claude' (Claude Code) est dans le PATH."""
+    import shutil
+    return bool(shutil.which("claude"))
+
+
+def _git_statut(folder: str) -> dict:
+    """Statut git du dossier : {is_repo, branch, dirty}. {} si git absent.
+
+    Lecture seule (rev-parse / status), jamais de mutation. Le dossier vient du
+    dashboard loopback (machine de l'utilisateur), git -C l'isole proprement.
+    """
+    import shutil
+    import subprocess
+
+    git = shutil.which("git")
+    if not git or not folder or not os.path.isdir(folder):
+        return {}
+
+    def _run(args: list[str]) -> str | None:
+        try:
+            r = subprocess.run(
+                [git, "-C", folder, *args],
+                capture_output=True, text=True, timeout=5,
+            )
+            return r.stdout.strip() if r.returncode == 0 else None
+        except Exception:
+            return None
+
+    if _run(["rev-parse", "--is-inside-work-tree"]) != "true":
+        return {"is_repo": False}
+    branche = _run(["rev-parse", "--abbrev-ref", "HEAD"]) or "?"
+    porcelain = _run(["status", "--porcelain"])
+    modifies = len([l for l in porcelain.splitlines() if l.strip()]) if porcelain else 0
+    return {"is_repo": True, "branch": branche, "dirty": modifies}
+
+
+def _apercu_dossier(folder: str, limite: int = 14) -> dict:
+    """Apercu NON recursif : nombre d'entrees + premieres entrees (nom + type).
+
+    Ne lit aucun contenu de fichier (noms seulement) : aucun risque de fuite.
+    """
+    try:
+        entrees = sorted(os.listdir(folder))
+    except Exception as e:
+        return {"file_count": 0, "entries": [], "error": str(e)}
+    apercu: list[dict] = []
+    for nom in entrees:
+        if nom.startswith("."):
+            continue
+        apercu.append({"name": nom, "dir": os.path.isdir(os.path.join(folder, nom))})
+        if len(apercu) >= limite:
+            break
+    return {"file_count": len(entrees), "entries": apercu}
+
+
+def _statut_cowork(folder: str) -> dict:
+    """Payload dash_cowork complet pour un dossier (existence, git, apercu)."""
+    existe = bool(folder) and os.path.isdir(folder)
+    payload: dict[str, Any] = {
+        "action": "dash_cowork",
+        "folder": folder or "",
+        "exists": existe,
+        "claude_dispo": _claude_dispo(),
+    }
+    if existe:
+        payload["git"] = _git_statut(folder)
+        payload.update(_apercu_dossier(folder))
+    return payload
+
+
+async def _h_cowork_status(data: dict) -> dict:
+    config = jarvis_ui_config.charger() if jarvis_ui_config is not None else {}
+    folder = str(config.get("cowork_folder", "") or "")
+    # _statut_cowork fait du subprocess (git) bloquant -> executor.
+    return await _en_executor(_statut_cowork, folder)
+
+
+async def _h_set_cowork(data: dict) -> dict:
+    if jarvis_ui_config is None:
+        return {"action": "dash_cowork", "folder": "", "exists": False,
+                "error": "Module jarvis_ui_config indisponible"}
+    folder_brut = str(data.get("folder", "") or "").strip().strip('"').strip("'")
+    if folder_brut and not os.path.isdir(os.path.expanduser(folder_brut)):
+        return {"action": "dash_cowork", "folder": "", "exists": False,
+                "error": f"Dossier introuvable : {folder_brut[:120]}"}
+    config = jarvis_ui_config.sauvegarder({"cowork_folder": folder_brut})
+    folder = str(config.get("cowork_folder", "") or "")
+    return await _en_executor(_statut_cowork, folder)
+
+
+async def _h_cowork_delegate(data: dict) -> dict:
+    """Confie une tache a Claude Code DANS le dossier Cowork (subprocess borne)."""
+    if claude_bridge is None:
+        return {"action": "dash_cowork_result", "ok": False,
+                "error": "Module claude_bridge indisponible"}
+    prompt = str(data.get("prompt", "") or "").strip()
+    if not prompt:
+        return {"action": "dash_cowork_result", "ok": False, "error": "Tache vide"}
+    config = jarvis_ui_config.charger() if jarvis_ui_config is not None else {}
+    folder = str(config.get("cowork_folder", "") or "")
+    if not folder or not os.path.isdir(folder):
+        return {"action": "dash_cowork_result", "ok": False,
+                "error": "Aucun dossier Cowork valide defini"}
+    sortie, ok = await _en_executor(
+        lambda: claude_bridge.lancer_claude_code(prompt, 180.0, folder)
+    )
+    return {
+        "action": "dash_cowork_result",
+        "ok": bool(ok),
+        "output": str(sortie),
+        "folder": folder,
+    }
+
+
+# ==========================================
 # DISPATCH
 # ==========================================
 _HANDLERS = {
@@ -1497,6 +1671,11 @@ _HANDLERS = {
     "dash_triggers_list": _h_triggers_list,
     "dash_trigger_save": _h_trigger_save,
     "dash_trigger_delete": _h_trigger_delete,
+    "dash_get_ui": _h_get_ui,
+    "dash_set_ui": _h_set_ui,
+    "dash_cowork_status": _h_cowork_status,
+    "dash_set_cowork": _h_set_cowork,
+    "dash_cowork_delegate": _h_cowork_delegate,
 }
 
 

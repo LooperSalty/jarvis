@@ -1,0 +1,209 @@
+/**
+ * Section "Personnalisation" :
+ * - Theme du dashboard (accent) : presets + couleur personnalisee.
+ * - Couleur de Jarvis (l'orbe) : palettes presets + couleur personnalisee.
+ *
+ * Le theme du dashboard s'applique en LOCAL immediatement (variables CSS) ; la
+ * couleur de l'orbe est poussee par le backend a la page orbe (action dash_ui)
+ * pour un rendu live. Tout est persiste cote backend (jarvis_ui_config.json) et
+ * mis en cache localStorage pour une application instantanee au rechargement.
+ */
+
+import * as ws from "./ws";
+import {
+  type Section,
+  type Cleanup,
+  el,
+  clearChildren,
+  panel,
+  showToast,
+  asRecord,
+  asString,
+} from "./sections";
+import {
+  THEME_ACCENTS,
+  THEME_LABELS,
+  ORB_PALETTES,
+  ORB_LABELS,
+  applyDashboardTheme,
+  resolveAccent,
+  ecrireConfigLocale,
+  isHex,
+  type UiConfig,
+} from "../ui_theme";
+
+const THEME_IDS = ["cyan", "violet", "emeraude", "ambre", "rose", "rouge"];
+const ORB_IDS = ["classique", "ironman", "nebuleuse", "emeraude", "givre"];
+
+function lireConfig(msg: ws.WsMessage): Partial<UiConfig> {
+  const c = asRecord(msg.config);
+  return {
+    theme: asString(c.theme, "cyan"),
+    accent: asString(c.accent, "#4be1ff"),
+    orb_style: asString(c.orb_style, "classique"),
+    orb_color: asString(c.orb_color, "#4ca8e8"),
+    cowork_folder: asString(c.cowork_folder, ""),
+  };
+}
+
+function mount(root: HTMLElement): Cleanup {
+  let config: Partial<UiConfig> = {
+    theme: "cyan",
+    accent: "#4be1ff",
+    orb_style: "classique",
+    orb_color: "#4ca8e8",
+  };
+
+  // ── Panneau theme du dashboard ──
+  const themePanel = panel(
+    "Theme du dashboard",
+    "Couleur d'accent de cette interface de configuration."
+  );
+  const themeGrid = el("div", "swatch-grid");
+  themePanel.body.appendChild(themeGrid);
+  const accentInput = el("input", "color-input") as HTMLInputElement;
+  accentInput.type = "color";
+  const accentRow = el("label", "field color-field");
+  accentRow.appendChild(el("span", "field-label", "Couleur personnalisee"));
+  accentRow.appendChild(accentInput);
+  themePanel.body.appendChild(accentRow);
+  root.appendChild(themePanel.root);
+
+  // ── Panneau orbe ──
+  const orbPanel = panel(
+    "Couleur de Jarvis",
+    "Palette de l'orbe affichee sur l'interface principale (mise a jour en direct)."
+  );
+  const orbGrid = el("div", "swatch-grid");
+  orbPanel.body.appendChild(orbGrid);
+  const orbColorInput = el("input", "color-input") as HTMLInputElement;
+  orbColorInput.type = "color";
+  const orbColorRow = el("label", "field color-field");
+  orbColorRow.appendChild(el("span", "field-label", "Couleur personnalisee"));
+  orbColorRow.appendChild(orbColorInput);
+  orbPanel.body.appendChild(orbColorRow);
+  orbPanel.body.appendChild(
+    el(
+      "p",
+      "panel-note",
+      "Ouvre l'interface principale (l'orbe) pour voir le changement en direct."
+    )
+  );
+  root.appendChild(orbPanel.root);
+
+  function envoyer(updates: Partial<UiConfig>): void {
+    if (!ws.send({ type: "dash_set_ui", updates })) {
+      showToast("Backend deconnecte.", false);
+    }
+  }
+
+  function appliquerLocal(): void {
+    applyDashboardTheme(config);
+    ecrireConfigLocale(config);
+  }
+
+  function choisirTheme(id: string): void {
+    config = { ...config, theme: id };
+    appliquerLocal();
+    renderThemes();
+    envoyer({ theme: id });
+  }
+
+  function choisirAccent(hex: string): void {
+    if (!isHex(hex)) return;
+    config = { ...config, theme: "custom", accent: hex };
+    appliquerLocal();
+    renderThemes();
+    envoyer({ theme: "custom", accent: hex });
+  }
+
+  function choisirOrb(id: string): void {
+    config = { ...config, orb_style: id };
+    ecrireConfigLocale(config);
+    renderOrbs();
+    envoyer({ orb_style: id });
+  }
+
+  function choisirOrbColor(hex: string): void {
+    if (!isHex(hex)) return;
+    config = { ...config, orb_style: "custom", orb_color: hex };
+    ecrireConfigLocale(config);
+    renderOrbs();
+    envoyer({ orb_style: "custom", orb_color: hex });
+  }
+
+  function renderThemes(): void {
+    clearChildren(themeGrid);
+    for (const id of THEME_IDS) {
+      const sw = el("button", "swatch") as HTMLButtonElement;
+      sw.type = "button";
+      const dot = el("span", "swatch-dot");
+      dot.style.background = THEME_ACCENTS[id];
+      sw.appendChild(dot);
+      sw.appendChild(el("span", "swatch-label", THEME_LABELS[id] || id));
+      if (config.theme === id) sw.classList.add("active");
+      sw.addEventListener("click", () => choisirTheme(id));
+      themeGrid.appendChild(sw);
+    }
+    accentRow.classList.toggle("active", config.theme === "custom");
+    accentInput.value = isHex(config.accent) ? (config.accent as string) : resolveAccent(config);
+  }
+
+  function renderOrbs(): void {
+    clearChildren(orbGrid);
+    for (const id of ORB_IDS) {
+      const p = ORB_PALETTES[id];
+      const sw = el("button", "swatch") as HTMLButtonElement;
+      sw.type = "button";
+      const dot = el("span", "swatch-dot orb");
+      dot.style.background = `radial-gradient(circle at 35% 30%, ${p.listening}, ${p.idle} 55%, ${p.thinking})`;
+      sw.appendChild(dot);
+      sw.appendChild(el("span", "swatch-label", ORB_LABELS[id] || id));
+      if (config.orb_style === id) sw.classList.add("active");
+      sw.addEventListener("click", () => choisirOrb(id));
+      orbGrid.appendChild(sw);
+    }
+    orbColorRow.classList.toggle("active", config.orb_style === "custom");
+    orbColorInput.value = isHex(config.orb_color) ? (config.orb_color as string) : "#4ca8e8";
+  }
+
+  accentInput.addEventListener("change", () => choisirAccent(accentInput.value));
+  orbColorInput.addEventListener("change", () => choisirOrbColor(orbColorInput.value));
+
+  // ── Synchronisation backend ──
+  const offUi = ws.on("dash_ui", (msg) => {
+    if (asString(msg.error)) {
+      showToast(asString(msg.error), false);
+      return;
+    }
+    config = { ...config, ...lireConfig(msg) };
+    appliquerLocal();
+    renderThemes();
+    renderOrbs();
+  });
+
+  function fetchUi(): void {
+    ws.send({ type: "dash_get_ui" });
+  }
+
+  const offStatus = ws.onStatus((ok) => {
+    if (ok) fetchUi();
+  });
+
+  // Etat initial : rendu immediat (cache deja applique par main.ts) + fetch.
+  renderThemes();
+  renderOrbs();
+  if (ws.isConnected()) fetchUi();
+
+  return () => {
+    offUi();
+    offStatus();
+  };
+}
+
+export const sectionPersonnalisation: Section = {
+  id: "personnalisation",
+  label: "Personnalisation",
+  icon: "🎨",
+  mount,
+};
