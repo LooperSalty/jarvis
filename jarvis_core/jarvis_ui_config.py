@@ -30,7 +30,7 @@ def _dossier_donnees() -> Path:
     """A cote de l'exe en mode frozen (persistance), sinon racine du repo."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parent
+    return Path(__file__).resolve().parent.parent  # jarvis_core/ -> racine du repo (dev)
 
 
 CONFIG_PATH: Path = _dossier_donnees() / "jarvis_ui_config.json"

@@ -21,7 +21,7 @@ from PIL import Image, ImageDraw
 
 # Ce script est dans jarvis/scripts/, le projet est dans son parent
 ROOT = Path(__file__).parent.parent.resolve()
-BACKEND_SCRIPT = ROOT / "main2.py"
+BACKEND_SCRIPT = ROOT / "jarvis_core" / "main2.py"
 ICON_PATH = ROOT / "jarvis_tray.ico"
 LOG_PATH = ROOT / "jarvis.log"
 ERR_PATH = ROOT / "jarvis.log.err"

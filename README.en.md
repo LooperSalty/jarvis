@@ -60,10 +60,10 @@ ollama pull qwen2.5:7b
 python scripts/jarvis_tray.py
 
 # Or standalone desktop mode (frameless PyQt5 window)
-python jarvis_desktop.py
+python jarvis_core/jarvis_desktop.py
 
 # Or raw backend (auto-launches Vite)
-python main2.py
+python jarvis_core/main2.py
 ```
 
 > `requirements.txt` is a full freeze of the dev machine (conflicting pins):
@@ -83,7 +83,7 @@ scripts\build_installer.bat
 
 ### macOS
 
-`jarvis_desktop.py` is Windows-first (PyQt5 WebEngine + win32api). On macOS, use the web/backend mode:
+`jarvis_core/jarvis_desktop.py` is Windows-first (PyQt5 WebEngine + win32api). On macOS, use the web/backend mode:
 
 ```bash
 python3 -m venv .venv
@@ -92,7 +92,7 @@ python -m pip install --upgrade pip
 brew install portaudio
 python -m pip install -r requirements-macos.txt
 cd frontend && npm install && cd ..
-python main2.py
+python jarvis_core/main2.py
 ```
 
 Notes:

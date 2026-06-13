@@ -31,7 +31,7 @@ def _dossier_donnees() -> Path:
     racine du repo. Garantit la persistance du profil entre deux lancements."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parent
+    return Path(__file__).resolve().parent.parent  # jarvis_core/ -> racine du repo (dev)
 
 
 PROFILE_PATH: Path = _dossier_donnees() / "jarvis_profile.json"

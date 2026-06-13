@@ -69,6 +69,7 @@ jobs:
         run: |
           python - <<'PY'
           import os, sys
+          sys.path.insert(0, "jarvis_core")  # jarvis_version est dans jarvis_core/
           from jarvis_version import VERSION
           tag = os.environ.get("GITHUB_REF_NAME", "").lstrip("vV")
           if tag != VERSION:
@@ -165,7 +166,7 @@ jobs:
         # les binaires a la racine (BinDir par defaut "..") : on les y copie.
         shell: pwsh
         run: |
-          $version = python -c "from jarvis_version import VERSION; print(VERSION)"
+          $version = python -c "import sys; sys.path.insert(0,'jarvis_core'); from jarvis_version import VERSION; print(VERSION)"
           # Builds ONEDIR : deverser le CONTENU de dist\Jarvis et dist\JarvisWeb a
           # la racine (BinDir="..") -> Jarvis.exe + _internal\ et JarvisWeb.exe +
           # _internal_web\ cote a cote, comme l'attend JarvisSetup.iss [Files].

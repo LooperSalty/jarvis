@@ -22,7 +22,7 @@
 
 ; --- Version : passee par /DAppVersion, sinon lue dans jarvis_version.py ---
 #ifndef AppVersion
-  #define _VerFichier = FileOpen(AddBackslash(SourcePath) + "..\jarvis_version.py")
+  #define _VerFichier = FileOpen(AddBackslash(SourcePath) + "..\jarvis_core\jarvis_version.py")
   #if _VerFichier == 0
     #pragma error "jarvis_version.py introuvable a cote du dossier installer/"
   #endif

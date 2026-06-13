@@ -17,6 +17,11 @@ try:
         # souvent importe AVANT que main2 ne charge le .env persistant : il
         # doit donc le charger lui-meme (premier lu gagne, pas d'ecrasement).
         load_dotenv(Path(sys.executable).resolve().parent / ".env")
+    else:
+        # Mode dev : ce module vit dans jarvis_core/, le .env est A LA RACINE.
+        # On le charge explicitement pour rester robuste quel que soit le cwd
+        # (lance depuis la racine ou depuis jarvis_core/).
+        load_dotenv(Path(__file__).resolve().parent.parent / ".env")
     load_dotenv()
 except Exception:
     pass

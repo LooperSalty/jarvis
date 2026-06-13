@@ -27,7 +27,7 @@ if not exist "%ISCC%" (
 
 REM Extrait x.y.z de la ligne : VERSION = "x.y.z"
 set "VERSION="
-for /f tokens^=2^ delims^=^" %%v in ('findstr /B /C:"VERSION = " jarvis_version.py') do set "VERSION=%%v"
+for /f tokens^=2^ delims^=^" %%v in ('findstr /B /C:"VERSION = " jarvis_core\jarvis_version.py') do set "VERSION=%%v"
 if "%VERSION%"=="" (
   echo Impossible de lire VERSION dans jarvis_version.py
   exit /b 1

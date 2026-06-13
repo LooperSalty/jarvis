@@ -30,7 +30,7 @@ def _dossier_donnees() -> Path:
     jarvis_profile._dossier_donnees pour la persistance entre lancements."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parent
+    return Path(__file__).resolve().parent.parent  # jarvis_core/ -> racine du repo (dev)
 
 
 TOKEN_PATH: Path = _dossier_donnees() / "jarvis_ws_token.txt"

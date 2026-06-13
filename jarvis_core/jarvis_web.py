@@ -21,7 +21,9 @@ import webbrowser
 from pathlib import Path
 
 FROZEN = getattr(sys, "frozen", False)
-ROOT = Path(getattr(sys, "_MEIPASS", str(Path(__file__).parent.resolve())))
+# Frozen : ROOT = _MEIPASS. Dev : ce fichier est dans jarvis_core/, ROOT pointe
+# la RACINE du repo (remonte d'un cran) ; main2.py est dans jarvis_core/.
+ROOT = Path(getattr(sys, "_MEIPASS", str(Path(__file__).parent.parent.resolve())))
 JARVIS_URL = "http://localhost:5173"
 LOG_PATH = Path(tempfile.gettempdir()) / "jarvis_web.log"
 
@@ -62,7 +64,7 @@ def main():
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
         backend_proc = subprocess.Popen(
-            [sys.executable, "-u", str(ROOT / "main2.py")],
+            [sys.executable, "-u", str(ROOT / "jarvis_core" / "main2.py")],
             cwd=str(ROOT), env=env,
         )
 

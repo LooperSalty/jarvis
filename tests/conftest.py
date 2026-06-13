@@ -12,6 +12,17 @@ module concerne, plus fiable qu'une variable d'environnement.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path as _Path
+
+# Les modules core vivent dans jarvis_core/. On garantit qu'ils (et les packages
+# restes a la racine : jarvis_actions/jarvis_skills) sont importables a plat,
+# en plus du `pythonpath` de pytest.ini (ceinture + bretelles).
+_ROOT = _Path(__file__).resolve().parent.parent
+for _p in (str(_ROOT), str(_ROOT / "jarvis_core")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 import importlib
 
 import pytest

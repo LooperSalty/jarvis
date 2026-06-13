@@ -106,8 +106,9 @@ excludes = [
 block_cipher = None
 
 a = Analysis(
-    ['jarvis_web.py'],
-    pathex=[ROOT],
+    ['jarvis_core/jarvis_web.py'],
+    # jarvis_core/ ajoute au pathex : modules core importes A PLAT depuis jarvis_core/.
+    pathex=[ROOT, os.path.join(ROOT, 'jarvis_core')],
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,

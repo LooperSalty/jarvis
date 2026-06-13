@@ -7,6 +7,20 @@ import edge_tts
 import os
 import sys
 
+# --- Bootstrap chemins (mode dev uniquement) ---------------------------------
+# Ce module vit desormais dans jarvis_core/. Pour resoudre les imports PLATS des
+# modules core (jarvis_config, jarvis_brain_local...) ET les packages restes a
+# la racine (jarvis_actions, jarvis_skills, jarvis_home_config), on ajoute
+# jarvis_core/ ET la racine du repo en tete de sys.path. En FROZEN (.exe),
+# PyInstaller aplatit tout dans le bundle : on n'y touche pas (cf. plus bas le
+# sys.path vers le dossier de l'exe pour les fichiers perso deposes a cote).
+if not getattr(sys, "frozen", False):
+    from pathlib import Path as _Path
+    _HERE = _Path(__file__).resolve().parent           # .../jarvis_core
+    for _p in (str(_HERE), str(_HERE.parent)):          # core, puis racine repo
+        if _p not in sys.path:
+            sys.path.insert(0, _p)
+
 # Imports audio/GUI tolerants : en conteneur (Docker, mode serveur headless)
 # il n'y a ni micro, ni haut-parleur, ni display. Ces libs crashent a l'import
 # (pyautogui) ou a l'usage (pyaudio/pygame mixer) sans peripherique. On degrade
@@ -62,11 +76,12 @@ from jarvis_config import USER_NAME
 
 # Dossier des donnees persistantes : a cote de l'exe en mode PyInstaller
 # (le cwd est alors sys._MEIPASS, un dossier temporaire efface a la sortie),
-# sinon racine du repo. Meme pattern que jarvis_profile._dossier_donnees.
+# sinon RACINE DU REPO (ce module est dans jarvis_core/ -> on remonte d'un cran
+# pour que .env / memoire / profil restent a la racine en dev).
 def _dossier_donnees() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parent
+    return Path(__file__).resolve().parent.parent
 
 
 DOSSIER_DONNEES = _dossier_donnees()
@@ -4369,7 +4384,10 @@ def start_global_hotkey():
 def start_mobile_http_server():
     """Serveur HTTP minimal pour servir l'interface mobile sur le port 8080."""
     import http.server
-    mobile_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mobile")
+    _base = os.path.dirname(os.path.abspath(__file__))
+    if not getattr(sys, "frozen", False):
+        _base = os.path.dirname(_base)  # dev : remonte de jarvis_core/ vers la racine
+    mobile_dir = os.path.join(_base, "mobile")
     if not os.path.exists(mobile_dir):
         print("[MOBILE] Dossier mobile/ introuvable, serveur non demarre.")
         return
@@ -4387,7 +4405,10 @@ def start_frontend_static_server(port: int = 5173):
     """Sert le bundle frontend/dist/ pre-build sur le port 5173 (remplace Vite).
     Utilise par le mode app standalone (JARVIS_NO_BROWSER=1)."""
     import http.server
-    dist_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend", "dist")
+    _base = os.path.dirname(os.path.abspath(__file__))
+    if not getattr(sys, "frozen", False):
+        _base = os.path.dirname(_base)  # dev : remonte de jarvis_core/ vers la racine
+    dist_dir = os.path.join(_base, "frontend", "dist")
     if not os.path.exists(dist_dir):
         print(f"[FRONTEND-STATIC] Bundle introuvable a {dist_dir}. Lance d'abord : cd frontend && npm run build")
         return
@@ -4427,7 +4448,10 @@ def main():
     # Le mode headless (Docker) l'implique toujours.
     no_browser = HEADLESS or os.getenv("JARVIS_NO_BROWSER", "0") == "1"
 
-    frontend_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
+    _base = os.path.dirname(os.path.abspath(__file__))
+    if not getattr(sys, "frozen", False):
+        _base = os.path.dirname(_base)  # dev : remonte de jarvis_core/ vers la racine
+    frontend_dir = os.path.join(_base, "frontend")
     frontend_process = None
     if no_browser:
         print("[JARVIS] Mode app standalone : sert frontend/dist/ sur 5173, pas de Vite, pas de navigateur.")

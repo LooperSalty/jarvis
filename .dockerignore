@@ -19,7 +19,7 @@ dist/
 *.log
 credentials.json
 token*.pickle
-jarvis_home_config.py
+jarvis_core/jarvis_home_config.py
 jarvis_profile.json
 jarvis_mcp.json
 jarvis_memoire.json

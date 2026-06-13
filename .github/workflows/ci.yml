@@ -48,13 +48,14 @@ jobs:
         run: |
           python - <<'PY'
           import importlib, os, sys
+          sys.path.insert(0, "jarvis_core")  # modules core deplaces dans jarvis_core/ (imports a plat)
           # Modules importables sans pygame / google.genai / pyaudio.
           # On teste l'EXISTENCE du fichier d'abord : absent sur la branche => skip
           # (la CI passe aussi bien sur main que sur les branches de feature) ;
           # present mais plante a l'import => echec reel (bug a corriger).
           cibles = [
-              ("jarvis_profile", "jarvis_profile.py"),
-              ("jarvis_dashboard_api", "jarvis_dashboard_api.py"),
+              ("jarvis_profile", "jarvis_core/jarvis_profile.py"),
+              ("jarvis_dashboard_api", "jarvis_core/jarvis_dashboard_api.py"),
               ("jarvis_actions.mcp_client", "jarvis_actions/mcp_client.py"),
               ("jarvis_actions.skills_loader", "jarvis_actions/skills_loader.py"),
               ("jarvis_actions.display_actions", "jarvis_actions/display_actions.py"),
