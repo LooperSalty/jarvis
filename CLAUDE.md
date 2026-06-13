@@ -40,6 +40,7 @@ jarvis/
 ├── .github/workflows/                             ← ci.yml (python+frontend+secrets) + release.yml (tag → .exe/installateur/macOS)
 ├── README.md / README.en.md                       ← doc utilisateur FR / EN (garder les deux synchronisees)
 ├── docs/                                          ← placeholders config (VOS_API.txt, ...)
+├── examples/                                      ← modèles *_example.json à copier (templates, jamais chargés par le code)
 ├── frontend/                                      ← UI Three.js + Vite (index.html = orbe, dashboard.html = config)
 ├── mobile/                                        ← interface mobile statique
 └── model_advisor/                                 ← sous-projet recommandeur LLM
@@ -162,7 +163,7 @@ Page Vite séparée `frontend/dashboard.html` (sources `frontend/src/dashboard/`
 
 - **Protocole** : tout passe par le WS 8765, messages `dash_*` (contrat complet en tête de `jarvis_dashboard_api.py` et `frontend/src/dashboard/ws.ts`).
 - **`jarvis_dashboard_api.py`** : routeur injecté par `init_api(contexte)` depuis main2 (callables mémoire + user_name). Écrit le `.env` ATOMIQUEMENT avec liste blanche de clés (`CLES_GEREES`) ; ne renvoie JAMAIS une valeur de clé au client (booléens uniquement). `restart_required` devient `True` après tout `dash_set_env`.
-- **MCP** (`jarvis_actions/mcp_client.py`) : client stdio JSON-RPC sans dépendance, config `jarvis_mcp.json` (gitignoré, modèle `jarvis_mcp_example.json`). Les tools des serveurs `enabled` sont exposés à la boucle agent Gemini au démarrage (`_init_mcp_tools` dans main2, noms `mcp_<serveur>_<tool>`). Les sessions vivent sur l'event loop du serveur WS — toujours awaiter depuis ce loop.
+- **MCP** (`jarvis_actions/mcp_client.py`) : client stdio JSON-RPC sans dépendance, config `jarvis_mcp.json` (gitignoré, modèle `examples/jarvis_mcp_example.json`). Les tools des serveurs `enabled` sont exposés à la boucle agent Gemini au démarrage (`_init_mcp_tools` dans main2, noms `mcp_<serveur>_<tool>`). Les sessions vivent sur l'event loop du serveur WS — toujours awaiter depuis ce loop.
 - **Skills** (`jarvis_skills/*.py`) : auto-découverts par `skills_loader`, contrat `SKILL = {...}` + `executer(cmd) -> (str|None, bool)` (ou `async_executer`). Branchés dans `traiter_reponse_ia` AVANT `pc_actions`. En mode .exe, un skill peut être déposé à côté du binaire sans rebuild.
 - **Affichage** (`display_actions.py`) : `montrer_contenu(titre, contenu, type)` génère une carte HTML sombre dans `%TEMP%/jarvis_affichage/` et l'ouvre (startfile / `open` / `xdg-open`). Exposé à l'agent Gemini comme tool `show_content` ("montre-moi...").
 - **Modèles** (`model_advisor_service.py`) : copie vendorisée de la base de `model_advisor/model_advisor.py` (commentaire "Synchronise depuis..." — mettre à jour les deux), détection specs cross-platform, reco top 8 + flag `installe` via Ollama `/api/tags`.
@@ -202,7 +203,7 @@ GEMINI_API_KEY, YOUTUBE_API_KEY, XAI_API_KEY, HA_URL, HA_TOKEN, SERPAPI_API_KEY,
 
 **Config Home Assistant perso** : les entités domotique (`PIECES_LUMIERES`, `PIECES_CAPTEURS`, `APPAREILS_BATTERIE`, etc.) sont externalisées dans `jarvis_home_config.py` (**gitignoré**, valeurs réelles) avec repli auto sur `jarvis_home_config_example.py` (générique, versionné). `main2.py` les importe via `try/except ImportError`. Ne jamais committer `jarvis_home_config.py`.
 
-**Données perso gitignorées avec modèle versionné** : `jarvis_profile.json` (famille, adresse, habitudes — modèle `jarvis_profile_example.json`), `jarvis_mcp.json` (modèle `jarvis_mcp_example.json`), `jarvis_ui_config.json` (thème, couleur de l'orbe, dossier Cowork — modèle `jarvis_ui_config_example.json`), `jarvis_skills/skills_config.json` (état actif/inactif des skills). Ne jamais les committer ni mettre de vraies données dans les exemples.
+**Données perso gitignorées avec modèle versionné** (les modèles `*_example.json` sont regroupés dans `examples/`) : `jarvis_profile.json` (famille, adresse, habitudes — modèle `examples/jarvis_profile_example.json`), `jarvis_mcp.json` (modèle `examples/jarvis_mcp_example.json`), `jarvis_ui_config.json` (thème, couleur de l'orbe, dossier Cowork — modèle `examples/jarvis_ui_config_example.json`), `jarvis_skills/skills_config.json` (état actif/inactif des skills). Ne jamais les committer ni mettre de vraies données dans les exemples.
 
 Variables d'env optionnelles :
 - `JARVIS_USER_NAME` — prénom utilisé par Jarvis (défaut `Monsieur`)

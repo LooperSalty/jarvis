@@ -2,7 +2,7 @@
 
 Lu/ecrit a cote de l'exe en mode PyInstaller (meme pattern _dossier_donnees que
 jarvis_profile, sinon racine du repo). Fichier gitignore (jarvis_ui_config.json),
-modele versionne jarvis_ui_config_example.json.
+modele versionne examples/jarvis_ui_config_example.json.
 
 Champs :
   theme         : id du theme du dashboard (cle de THEMES) ou "custom"
