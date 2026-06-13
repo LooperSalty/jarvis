@@ -233,3 +233,148 @@ def test_executer_fenetre_avec_pyautogui(monkeypatch):
     rep, ok = sa.executer("change de fenetre")
     assert ok is True
     assert appels == [("alt", "tab")]
+
+
+# ============================================================
+# v2 : routeur — volume, parametres, bureaux virtuels, raccourcis, infos+
+# ============================================================
+
+@pytest.mark.parametrize("phrase, attendu", [
+    ("mets le volume au maximum", "vol_max"),
+    ("volume a fond", "vol_max"),
+    ("volume au minimum", "vol_min"),
+])
+def test_router_volume_extremes(phrase, attendu):
+    intent = sa.detecter_intention(phrase)
+    assert intent is not None and intent[0] == attendu
+
+
+@pytest.mark.parametrize("phrase, niveau", [
+    ("mets le volume a 30", "30"),
+    ("volume a 50%", "50"),
+    ("baisse le volume a 20 pour cent", "20"),
+    ("regle le volume sur 75", "75"),
+])
+def test_router_volume_precis(phrase, niveau):
+    intent = sa.detecter_intention(phrase)
+    assert intent is not None
+    assert intent[0] == "vol_set"
+    assert intent[1] == niveau
+
+
+@pytest.mark.parametrize("phrase, attendu", [
+    ("ouvre les parametres", "set_main"),
+    ("parametres bluetooth", "set_bluetooth"),
+    ("ouvre le wifi", "set_wifi"),
+    ("parametres son", "set_sound"),
+    ("parametres d'affichage", "set_display"),
+])
+def test_router_parametres(phrase, attendu):
+    intent = sa.detecter_intention(phrase)
+    assert intent is not None and intent[0] == attendu
+
+
+@pytest.mark.parametrize("phrase, attendu", [
+    ("vue des taches", "vd_taskview"),
+    ("bureau suivant", "vd_next"),
+    ("bureau precedent", "vd_prev"),
+    ("nouveau bureau", "vd_new"),
+])
+def test_router_bureaux_virtuels(phrase, attendu):
+    intent = sa.detecter_intention(phrase)
+    assert intent is not None and intent[0] == attendu
+
+
+@pytest.mark.parametrize("phrase, attendu", [
+    ("nouvel onglet", "kbd_new_tab"),
+    ("ferme l'onglet", "kbd_close_tab"),
+    ("rouvre l'onglet", "kbd_reopen_tab"),
+    ("actualise la page", "kbd_refresh"),
+    ("plein ecran", "kbd_fullscreen"),
+    ("recherche dans la page", "kbd_find"),
+    ("zoom avant", "kbd_zoom_in"),
+    ("zoom arriere", "kbd_zoom_out"),
+    ("zoom normal", "kbd_zoom_reset"),
+])
+def test_router_raccourcis_clavier(phrase, attendu):
+    intent = sa.detecter_intention(phrase)
+    assert intent is not None and intent[0] == attendu
+
+
+@pytest.mark.parametrize("phrase, attendu", [
+    ("donne moi l'adresse ip", "sys_ip"),
+    ("c'est quoi le nom du pc", "sys_hostname"),
+    ("uptime", "sys_uptime"),
+    ("depuis quand le pc est allume", "sys_uptime"),
+])
+def test_router_infos_plus(phrase, attendu):
+    intent = sa.detecter_intention(phrase)
+    assert intent is not None and intent[0] == attendu
+
+
+def test_router_plein_ecran_vs_maximize():
+    """Separation claire : 'plein ecran' -> F11 (kbd_fullscreen) ; 'agrandis/
+    maximise la fenetre' -> win+up (win_maximize). Pas d'ambiguite."""
+    assert sa.detecter_intention("mets la fenetre en plein ecran")[0] == "kbd_fullscreen"
+    assert sa.detecter_intention("agrandis la fenetre")[0] == "win_maximize"
+    assert sa.detecter_intention("maximise la fenetre")[0] == "win_maximize"
+
+
+def test_router_ferme_onglet_ne_kill_pas():
+    """'ferme l'onglet' -> raccourci ctrl+w, pas un kill de process 'onglet'."""
+    assert sa.detecter_intention("ferme l'onglet")[0] == "kbd_close_tab"
+
+
+# ============================================================
+# v2 : formatter uptime + dispatch
+# ============================================================
+
+def test_format_uptime():
+    # 1 jour + 2h + 3min = 1440 + 120 + 3 = 1563 minutes
+    msg = sa._format_uptime(1563 * 60)
+    assert "1 jour" in msg and "2 heures" in msg and "3 minutes" in msg
+
+
+def test_executer_parametres_ouvre_uri(monkeypatch):
+    """'ouvre le wifi' lance os.startfile avec l'URI ms-settings adequat."""
+    appels = []
+    monkeypatch.setattr(sa, "IS_WINDOWS", True)
+    monkeypatch.setattr(sa.os, "startfile", lambda uri: appels.append(uri), raising=False)
+    rep, ok = sa.executer("ouvre le wifi")
+    assert ok is True
+    assert appels == ["ms-settings:network-wifi"]
+
+
+def test_executer_volume_precis_appuie_sur_les_touches(monkeypatch):
+    """'mets le volume a 30' force a 0 (50 down) puis remonte (~15 up)."""
+    presses = []
+
+    class _FakePyAutoGui:
+        @staticmethod
+        def press(touche):
+            presses.append(touche)
+
+    monkeypatch.setattr(sa, "pyautogui", _FakePyAutoGui)
+    rep, ok = sa.executer("mets le volume a 30")
+    assert ok is True
+    assert presses.count("volumedown") == 50
+    assert presses.count("volumeup") == 15  # round(30/2)
+
+
+def test_executer_nouvel_onglet_envoie_ctrl_t(monkeypatch):
+    appels = []
+
+    class _FakePyAutoGui:
+        @staticmethod
+        def hotkey(*touches):
+            appels.append(touches)
+
+    monkeypatch.setattr(sa, "pyautogui", _FakePyAutoGui)
+    rep, ok = sa.executer("nouvel onglet")
+    assert ok is True
+    assert appels == [("ctrl", "t")]
+
+
+def test_sys_hostname_repond():
+    rep, ok = sa._sys_hostname()
+    assert ok is True and rep
