@@ -5,7 +5,7 @@ Equivalent local de la personnalisation Claude : un fichier JSON editable
 contenu est injecte dans le system prompt via contexte_profil().
 
 Schema complet (toutes les cles optionnelles, defauts vides) :
-voir jarvis_profile_example.json a la racine du repo.
+voir examples/jarvis_profile_example.json.
 
 Usage cote main2.py :
     from jarvis_profile import contexte_profil, enregistrer_info_profil

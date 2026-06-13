@@ -13,7 +13,7 @@ Ensuite :
 
 Config : jarvis_mcp.json a la racine du repo (a cote de main2.py), format :
 {"servers": {"nom": {"command": "npx", "args": [...], "env": {}, "enabled": true}}}
-Voir jarvis_mcp_example.json pour des exemples prets a copier.
+Voir examples/jarvis_mcp_example.json pour des exemples prets a copier.
 
 Robustesse : un serveur qui meurt ou timeout ne fait JAMAIS crasher l'appelant.
 Toutes les fonctions retournent des erreurs propres (message + bool), jamais

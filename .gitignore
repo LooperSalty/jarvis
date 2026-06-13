@@ -18,18 +18,18 @@ jarvis_historique.json
 jarvis_memoire_vec.db
 
 # Profil utilisateur (donnees perso : famille, adresse, habitudes).
-# Modele : jarvis_profile_example.json
+# Modele : examples/jarvis_profile_example.json
 jarvis_profile.json
 
-# Config MCP perso (peut contenir des chemins/env locaux). Modele : jarvis_mcp_example.json
+# Config MCP perso (peut contenir des chemins/env locaux). Modele : examples/jarvis_mcp_example.json
 jarvis_mcp.json
 
 # Config UI perso (theme, couleur de l'orbe, dossier Cowork local).
-# Modele : jarvis_ui_config_example.json
+# Modele : examples/jarvis_ui_config_example.json
 jarvis_ui_config.json
 
 # Routines programmees et triggers contextuels (prefs locales).
-# Modeles : jarvis_routines_example.json / jarvis_triggers_example.json
+# Modeles : examples/jarvis_routines_example.json / examples/jarvis_triggers_example.json
 jarvis_routines.json
 jarvis_triggers.json
 
