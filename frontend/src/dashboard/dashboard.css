@@ -864,3 +864,50 @@ select.input { appearance: auto; }
   .content { padding: 20px 16px 50px; }
   .memory-layout { grid-template-columns: 1fr; }
 }
+
+/* ── Repli QtWebEngine : `gap` flex non supporte (Chromium 83) ────────────────
+   Classe .no-flex-gap posee sur <html> par main.ts quand le moteur n'implemente
+   pas le `gap` sur les conteneurs flex — cas de la fenetre native du
+   configurateur (jarvis_desktop.py -> QWebEngineView, Qt 5.15.2 = Chromium 83 ;
+   le `gap` flex n'arrive qu'en Chromium 84). On reproduit chaque `gap` par des
+   marges equivalentes entre enfants. Les grids ne sont PAS concernees (leur
+   `gap` marche depuis Chromium 66). Dans un navigateur moderne la classe n'est
+   pas posee -> le `gap` natif est conserve (aucune regression).
+   Les lignes en `justify-content: space-between` (.memory-item, .skill-row,
+   .mcp-head) sont deja ecartees par la repartition : pas de repli necessaire. */
+
+/* Conteneurs flex en LIGNE -> marge gauche entre enfants */
+.no-flex-gap .chat-vocal-toggle > * + * { margin-left: 4px; }
+.no-flex-gap .usage-check > * + * { margin-left: 7px; }
+.no-flex-gap .conn-badge > * + *,
+.no-flex-gap .status-dot > * + *,
+.no-flex-gap .dyn-row > * + *,
+.no-flex-gap .mcp-title > * + * { margin-left: 8px; }
+.no-flex-gap .nav-btn > * + *,
+.no-flex-gap .form-row > * + *,
+.no-flex-gap .actions-bar > * + *,
+.no-flex-gap .chat-form > * + * { margin-left: 10px; }
+.no-flex-gap .overview-version > * + * { margin-left: 12px; }
+
+/* Conteneurs flex en COLONNE -> marge haute entre enfants */
+.no-flex-gap .mcp-tool > * + * { margin-top: 1px; }
+.no-flex-gap .brand > * + *,
+.no-flex-gap .memory-item-main > * + * { margin-top: 2px; }
+.no-flex-gap .skill-main > * + * { margin-top: 3px; }
+.no-flex-gap .nav > * + *,
+.no-flex-gap .env-list > * + *,
+.no-flex-gap .mcp-main > * + *,
+.no-flex-gap .spec-card > * + * { margin-top: 4px; }
+.no-flex-gap .field > * + * { margin-top: 5px; }
+.no-flex-gap .memory-list > * + *,
+.no-flex-gap .mcp-tools > * + * { margin-top: 6px; }
+.no-flex-gap .dyn-list > * + *,
+.no-flex-gap .mcp-list > * + *,
+.no-flex-gap .skills-list > * + * { margin-top: 8px; }
+.no-flex-gap .chat-log > * + * { margin-top: 10px; }
+.no-flex-gap .panel-body > * + * { margin-top: 12px; }
+.no-flex-gap .section-root > * + * { margin-top: 18px; }
+
+/* Conteneurs flex qui WRAP -> marge droite + basse sur chaque enfant */
+.no-flex-gap .mcp-controls > *,
+.no-flex-gap .usages-grid > * { margin: 0 8px 8px 0; }
