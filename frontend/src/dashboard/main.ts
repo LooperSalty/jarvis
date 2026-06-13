@@ -16,7 +16,14 @@ import {
   showToast,
   asString,
 } from "./sections";
+import { applyDashboardTheme, lireConfigLocale } from "../ui_theme";
 import "./dashboard.css";
+
+// Applique le theme personnalise INSTANTANEMENT depuis le cache local (avant
+// meme la connexion WS), pour eviter un flash de couleur par defaut. La section
+// Personnalisation resynchronise ensuite depuis le backend (source de verite).
+const _cfgLocale = lireConfigLocale();
+if (_cfgLocale) applyDashboardTheme(_cfgLocale);
 
 const appRoot = document.getElementById("app");
 if (!appRoot) {

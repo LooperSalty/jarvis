@@ -8,6 +8,7 @@
  */
 
 import { createOrb, type OrbState } from "./orb";
+import { resolveOrbPalette, type UiConfig } from "./ui_theme";
 import { injectVisionButton, captureFrame } from "./screen_capture";
 import "./style.css";
 
@@ -119,6 +120,13 @@ function connect(): void {
 
   ws.addEventListener("open", () => {
     setConnected(true);
+    // Recupere la couleur/le style de l'orbe choisis dans le dashboard
+    // (loopback uniquement cote backend ; ignore sans effet sinon).
+    try {
+      ws?.send(JSON.stringify({ type: "dash_get_ui" }));
+    } catch {
+      /* socket pas encore pret : la prochaine reconnexion reessaiera */
+    }
   });
 
   ws.addEventListener("message", async (event: MessageEvent) => {
@@ -168,6 +176,12 @@ function connect(): void {
             error: "no_stream",
           }));
         }
+        return;
+      }
+
+      if (data.action === "dash_ui" && dataAny.config) {
+        // Couleur de l'orbe definie/changee dans le dashboard : application live.
+        orb.setPalette(resolveOrbPalette(dataAny.config as Partial<UiConfig>));
         return;
       }
 

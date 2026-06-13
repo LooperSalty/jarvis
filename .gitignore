@@ -24,6 +24,10 @@ jarvis_profile.json
 # Config MCP perso (peut contenir des chemins/env locaux). Modele : jarvis_mcp_example.json
 jarvis_mcp.json
 
+# Config UI perso (theme, couleur de l'orbe, dossier Cowork local).
+# Modele : jarvis_ui_config_example.json
+jarvis_ui_config.json
+
 # Routines programmees et triggers contextuels (prefs locales).
 # Modeles : jarvis_routines_example.json / jarvis_triggers_example.json
 jarvis_routines.json
