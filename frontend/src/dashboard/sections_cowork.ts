@@ -186,7 +186,19 @@ function mount(root: HTMLElement): Cleanup {
   });
 
   sessionBtn.addEventListener("click", () => {
-    if (ws.send({ type: "dash_cowork_session", mode: modeSelect.value })) {
+    const mode = modeSelect.value;
+    // Garde-fou : le mode Bypass execute TOUT sans demander -> confirmation.
+    if (
+      mode === "bypassPermissions" &&
+      !window.confirm(
+        "Mode Bypass : Claude Code executera toutes les actions (fichiers, " +
+          "commandes) SANS te demander, dans le dossier Cowork. A n'utiliser que " +
+          "dans un dossier de confiance. Continuer ?"
+      )
+    ) {
+      return;
+    }
+    if (ws.send({ type: "dash_cowork_session", mode })) {
       showToast("Ouverture du terminal de code…");
     } else {
       showToast("Backend deconnecte.", false);
