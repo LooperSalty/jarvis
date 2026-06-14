@@ -66,7 +66,11 @@ if (!flexGapSupported()) {
 
 const sidebar = el("aside", "sidebar");
 
-const brand = el("div", "brand");
+// Marque cliquable -> retour a l'orbe (page principale "/"), pour ne pas rester
+// bloque dans la config sans moyen de revenir a l'orbe Jarvis.
+const brand = el("a", "brand") as HTMLAnchorElement;
+brand.href = "/";
+brand.title = "Retour a l'orbe Jarvis";
 brand.appendChild(el("span", "brand-title", "J.A.R.V.I.S"));
 brand.appendChild(el("span", "brand-subtitle", "Configuration"));
 sidebar.appendChild(brand);

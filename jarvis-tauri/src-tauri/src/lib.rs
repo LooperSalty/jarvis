@@ -108,10 +108,11 @@ pub fn run() {
 
             // 2) Icone de barre des taches (tray) + menu.
             let ouvrir = MenuItem::with_id(app, "ouvrir", "Ouvrir Jarvis", true, None::<&str>)?;
+            let masquer = MenuItem::with_id(app, "masquer", "Masquer Jarvis", true, None::<&str>)?;
             let dashboard =
                 MenuItem::with_id(app, "dashboard", "Configuration (dashboard)", true, None::<&str>)?;
             let quitter = MenuItem::with_id(app, "quitter", "Quitter Jarvis", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&ouvrir, &dashboard, &quitter])?;
+            let menu = Menu::with_items(app, &[&ouvrir, &masquer, &dashboard, &quitter])?;
 
             let mut tray = TrayIconBuilder::with_id("jarvis-tray")
                 .menu(&menu)
@@ -119,6 +120,11 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "ouvrir" => montrer_fenetre(app, Some(FRONT_URL)),
+                    "masquer" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.hide();
+                        }
+                    }
                     "dashboard" => montrer_fenetre(app, Some(DASHBOARD_URL)),
                     "quitter" => {
                         tuer_backend(app);
