@@ -1,11 +1,12 @@
 /**
- * Section "Code" (onglet principal) : embarque l'Admin UI de free-claude-code
- * (proxy fcc-server : providers, modeles, messaging) dans une iframe, pour
- * configurer le modele de code local/gratuit (Qwen, DeepSeek) sans quitter Jarvis.
+ * Section "Code" (onglet principal) : un CHAT specialise programmation, branche
+ * sur un modele LOCAL (Ollama : DeepSeek Coder / Qwen) — gratuit et prive, PAS
+ * le Claude payant. La configuration (providers/modeles) est dans Parametres ->
+ * Config Code (sections_code_config.ts).
  *
  * Protocole WS :
- *   -> dash_fcc_status  <- dash_fcc_status {installe, en_marche, url_admin, port}
- *   -> dash_fcc_start   <- dash_fcc_started {ok, message}
+ *   -> dash_code_model            <- dash_code_model {model}
+ *   -> dash_code_chat {prompt,history} <- dash_code_reply {ok, text}
  */
 
 import * as ws from "./ws";
@@ -14,136 +15,161 @@ import {
   type Cleanup,
   el,
   clearChildren,
-  panel,
   button,
-  showToast,
   asString,
   asBool,
 } from "./sections";
 
+interface Tour {
+  role: "user" | "assistant";
+  content: string;
+}
+
 function mount(root: HTMLElement): Cleanup {
-  let pollTimer = 0;
-  let mode = ""; // "iframe" | "stopped" | "absent" — evite de recharger l'iframe
+  const history: Tour[] = [];
+  let busy = false;
 
-  function renderIframe(url: string): void {
-    clearChildren(root);
+  root.style.display = "flex";
+  root.style.flexDirection = "column";
+  root.style.height = "82vh";
 
-    const bar = el("div", "");
-    bar.style.display = "flex";
-    bar.style.alignItems = "center";
-    bar.style.marginBottom = "10px";
-    const titre = el("strong", "", "Code — free-claude-code");
-    const spacer = el("span", "");
-    spacer.style.flex = "1";
-    const reload = button("Recharger", "ghost");
-    const openExt = button("Ouvrir dans le navigateur", "ghost");
-    openExt.style.marginLeft = "8px"; // pas de flex-gap (QtWebEngine Chromium 83)
-    bar.appendChild(titre);
-    bar.appendChild(spacer);
-    bar.appendChild(reload);
-    bar.appendChild(openExt);
-    root.appendChild(bar);
+  // ── En-tete (titre + modele local + effacer) ──
+  const header = el("div", "");
+  header.style.display = "flex";
+  header.style.alignItems = "center";
+  header.style.marginBottom = "8px";
+  const title = el("strong", "", "Assistant code");
+  const badge = el("span", "panel-note", "modele local…");
+  badge.style.marginLeft = "10px";
+  const spacer = el("span", "");
+  spacer.style.flex = "1";
+  const clearBtn = button("Effacer", "ghost");
+  header.appendChild(title);
+  header.appendChild(badge);
+  header.appendChild(spacer);
+  header.appendChild(clearBtn);
+  root.appendChild(header);
 
-    const frame = el("iframe", "") as HTMLIFrameElement;
-    frame.src = url;
-    frame.setAttribute("title", "free-claude-code Admin");
-    frame.style.width = "100%";
-    frame.style.height = "78vh";
-    frame.style.border = "0";
-    frame.style.borderRadius = "12px";
-    frame.style.background = "#0b0b0f";
-    root.appendChild(frame);
+  // ── Zone messages ──
+  const msgs = el("div", "");
+  msgs.style.flex = "1";
+  msgs.style.overflowY = "auto";
+  msgs.style.padding = "8px";
+  msgs.style.borderRadius = "12px";
+  msgs.style.background = "rgba(255,255,255,0.03)";
+  msgs.style.marginBottom = "10px";
+  root.appendChild(msgs);
 
-    reload.addEventListener("click", () => {
-      frame.src = url;
-    });
-    openExt.addEventListener("click", () => {
-      window.open(url, "_blank", "noopener");
-    });
-  }
+  const intro = el(
+    "p",
+    "panel-note",
+    "Pose une question de programmation : la reponse vient d'un modele LOCAL (gratuit, prive), pas de Claude. Le code est genere a cote, sans facturation."
+  );
+  msgs.appendChild(intro);
 
-  function renderStopped(installe: boolean): void {
-    clearChildren(root);
-    const p = panel(
-      "Code (free-claude-code)",
-      "Configure et utilise un modele de code local/gratuit (Qwen, DeepSeek) pour Claude Code."
-    );
-    if (!installe) {
-      p.body.appendChild(
-        el(
-          "p",
-          "panel-note",
-          "free-claude-code (fcc-server) n'est pas installe. Ouvre un terminal et tape `jarvis` une fois pour le lancer, ou installe-le."
-        )
-      );
-      root.appendChild(p.root);
-      return;
-    }
-    p.body.appendChild(
-      el(
-        "p",
-        "panel-note",
-        "Le proxy free-claude-code n'est pas demarre. Demarre-le pour afficher ici le panneau de configuration (providers, modele)."
-      )
-    );
-    const startBtn = button("Demarrer le proxy", "primary");
-    startBtn.addEventListener("click", () => {
-      startBtn.disabled = true;
-      startBtn.textContent = "Demarrage...";
-      if (!ws.send({ type: "dash_fcc_start" })) {
-        showToast("Backend deconnecte.", false);
-        startBtn.disabled = false;
-        startBtn.textContent = "Demarrer le proxy";
-      }
-    });
-    p.body.appendChild(startBtn);
-    root.appendChild(p.root);
-  }
+  // ── Saisie ──
+  const inputRow = el("div", "");
+  inputRow.style.display = "flex";
+  inputRow.style.alignItems = "flex-end";
+  const ta = el("textarea", "input") as HTMLTextAreaElement;
+  ta.placeholder = "Decris ton besoin de code (Entree = envoyer, Maj+Entree = nouvelle ligne)…";
+  ta.rows = 2;
+  ta.spellcheck = false;
+  ta.style.flex = "1";
+  ta.style.resize = "vertical";
+  const sendBtn = button("Envoyer", "primary");
+  sendBtn.style.marginLeft = "8px";
+  inputRow.appendChild(ta);
+  inputRow.appendChild(sendBtn);
+  root.appendChild(inputRow);
 
-  function render(msg: ws.WsMessage): void {
-    if (asBool(msg.en_marche)) {
-      if (pollTimer) {
-        window.clearTimeout(pollTimer);
-        pollTimer = 0;
-      }
-      if (mode === "iframe") return; // deja affiche : ne pas recharger l'iframe
-      mode = "iframe";
-      renderIframe(asString(msg.url_admin) || "http://127.0.0.1:8082/admin");
+  function bulle(role: "user" | "assistant", contenu: string): HTMLElement {
+    const b = el("div", "");
+    b.style.margin = "8px 0";
+    b.style.padding = "10px 12px";
+    b.style.borderRadius = "10px";
+    b.style.whiteSpace = "pre-wrap";
+    b.style.wordBreak = "break-word";
+    if (role === "user") {
+      b.style.background = "rgba(120,140,255,0.15)";
+      b.style.marginLeft = "15%";
     } else {
-      const m = asBool(msg.installe) ? "stopped" : "absent";
-      if (mode === m) return;
-      mode = m;
-      renderStopped(asBool(msg.installe));
+      b.style.background = "rgba(255,255,255,0.05)";
+      b.style.marginRight = "10%";
+      b.style.fontFamily = "ui-monospace, Menlo, Consolas, monospace";
+      b.style.fontSize = "13px";
+    }
+    b.textContent = contenu;
+    msgs.appendChild(b);
+    msgs.scrollTop = msgs.scrollHeight;
+    return b;
+  }
+
+  function envoyer(): void {
+    const prompt = ta.value.trim();
+    if (!prompt || busy) return;
+    bulle("user", prompt);
+    ta.value = "";
+    busy = true;
+    sendBtn.disabled = true;
+    sendBtn.textContent = "…";
+    const pending = bulle("assistant", "… le modele local reflechit (le 1er appel charge le modele, ~30s)…");
+    pending.dataset.pending = "1";
+    const ok = ws.send({ type: "dash_code_chat", prompt, history: history.slice() });
+    history.push({ role: "user", content: prompt });
+    if (!ok) {
+      pending.textContent = "Backend deconnecte.";
+      delete pending.dataset.pending;
+      busy = false;
+      sendBtn.disabled = false;
+      sendBtn.textContent = "Envoyer";
     }
   }
 
-  const offStatus = ws.on("dash_fcc_status", (msg) => render(msg));
-  const offStarted = ws.on("dash_fcc_started", (msg) => {
-    if (asBool(msg.ok)) {
-      showToast(asString(msg.message, "Demarrage en cours..."));
-      // Le proxy met quelques secondes a etre pret : on re-verifie le statut.
-      let tries = 0;
-      const poll = (): void => {
-        tries += 1;
-        ws.send({ type: "dash_fcc_status" });
-        if (tries < 8) pollTimer = window.setTimeout(poll, 2000);
-      };
-      pollTimer = window.setTimeout(poll, 2000);
-    } else {
-      showToast(asString(msg.message, "Echec du demarrage."), false);
+  sendBtn.addEventListener("click", envoyer);
+  ta.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      envoyer();
     }
   });
-  const offConn = ws.onStatus((ok) => {
-    if (ok) ws.send({ type: "dash_fcc_status" });
+  clearBtn.addEventListener("click", () => {
+    history.length = 0;
+    clearChildren(msgs);
+    msgs.appendChild(intro);
   });
 
-  if (ws.isConnected()) ws.send({ type: "dash_fcc_status" });
+  const offReply = ws.on("dash_code_reply", (msg) => {
+    const texte = asString(msg.text, "(reponse vide)");
+    const pend = msgs.querySelector('[data-pending="1"]') as HTMLElement | null;
+    if (pend) {
+      delete pend.dataset.pending;
+      pend.textContent = texte;
+    } else {
+      bulle("assistant", texte);
+    }
+    if (asBool(msg.ok)) history.push({ role: "assistant", content: texte });
+    busy = false;
+    sendBtn.disabled = false;
+    sendBtn.textContent = "Envoyer";
+    msgs.scrollTop = msgs.scrollHeight;
+  });
+
+  const offModel = ws.on("dash_code_model", (msg) => {
+    const m = asString(msg.model);
+    badge.textContent = m ? `modele local : ${m}` : "aucun modele local detecte (lance Ollama)";
+  });
+
+  const offConn = ws.onStatus((connecte) => {
+    if (connecte) ws.send({ type: "dash_code_model" });
+  });
+
+  if (ws.isConnected()) ws.send({ type: "dash_code_model" });
 
   return () => {
-    offStatus();
-    offStarted();
+    offReply();
+    offModel();
     offConn();
-    if (pollTimer) window.clearTimeout(pollTimer);
   };
 }
 
