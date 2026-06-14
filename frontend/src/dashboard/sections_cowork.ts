@@ -77,9 +77,11 @@ function mount(root: HTMLElement): Cleanup {
   const msgs = el("div", "");
   msgs.style.flex = "1";
   msgs.style.overflowY = "auto";
-  msgs.style.padding = "8px";
-  msgs.style.borderRadius = "12px";
-  msgs.style.background = "rgba(255,255,255,0.03)";
+  msgs.style.display = "flex";
+  msgs.style.flexDirection = "column";
+  msgs.style.padding = "14px 16px";
+  msgs.style.borderRadius = "14px";
+  msgs.style.background = "rgba(255,255,255,0.025)";
   msgs.style.margin = "10px 0";
   root.appendChild(msgs);
   const intro = el(
@@ -109,23 +111,40 @@ function mount(root: HTMLElement): Cleanup {
   root.appendChild(inputRow);
 
   function bulle(role: "user" | "assistant", contenu: string): HTMLElement {
+    const estUser = role === "user";
+    const wrap = el("div", "");
+    wrap.style.display = "flex";
+    wrap.style.flexDirection = "column";
+    wrap.style.maxWidth = "84%";
+    wrap.style.margin = "10px 0";
+    wrap.style.alignSelf = estUser ? "flex-end" : "flex-start";
+
+    const label = el("div", "", estUser ? "Toi" : "Claude Code");
+    label.style.fontSize = "11px";
+    label.style.opacity = "0.5";
+    label.style.margin = estUser ? "0 4px 4px 0" : "0 0 4px 4px";
+    label.style.alignSelf = estUser ? "flex-end" : "flex-start";
+
     const b = el("div", "");
-    b.style.margin = "8px 0";
-    b.style.padding = "10px 12px";
-    b.style.borderRadius = "10px";
+    b.style.padding = "11px 14px";
+    b.style.borderRadius = "14px";
     b.style.whiteSpace = "pre-wrap";
     b.style.wordBreak = "break-word";
-    if (role === "user") {
-      b.style.background = "rgba(120,140,255,0.15)";
-      b.style.marginLeft = "12%";
+    b.style.lineHeight = "1.5";
+    if (estUser) {
+      b.style.background = "rgba(75, 225, 255, 0.14)";
+      b.style.borderBottomRightRadius = "5px";
     } else {
-      b.style.background = "rgba(255,255,255,0.05)";
-      b.style.marginRight = "8%";
+      b.style.background = "rgba(255, 255, 255, 0.05)";
+      b.style.borderBottomLeftRadius = "5px";
       b.style.fontFamily = "ui-monospace, Menlo, Consolas, monospace";
       b.style.fontSize = "13px";
     }
     b.textContent = contenu;
-    msgs.appendChild(b);
+
+    wrap.appendChild(label);
+    wrap.appendChild(b);
+    msgs.appendChild(wrap);
     msgs.scrollTop = msgs.scrollHeight;
     return b;
   }
