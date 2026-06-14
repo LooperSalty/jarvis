@@ -11,7 +11,7 @@ import json
 import urllib.request
 
 # Version courante. A bumper en meme temps que le tag git de release.
-VERSION = "0.1.1"
+VERSION = "0.2.0"
 
 # Depot GitHub (owner/repo) pour la verification de mise a jour.
 GITHUB_REPO = "LooperSalty/jarvis"
