@@ -105,11 +105,17 @@ def ouvrir_session_terminal(cwd: str | None = None) -> tuple[str, bool]:
             subprocess.Popen(["x-terminal-emulator", "-e", cli], cwd=dossier, shell=False)
         elif shutil.which("osascript"):  # macOS best-effort
             cible = dossier or os.getcwd()
-            subprocess.Popen(
-                ["osascript", "-e",
-                 f'tell application "Terminal" to do script "cd \\"{cible}\\" && claude"'],
-                shell=False,
+            # SECURITE : le chemin est passe en ARGV a osascript (aucune
+            # interpolation dans le script) et echappe par `quoted form of`
+            # cote shell -> pas d'injection AppleScript ni shell, meme si le
+            # nom de dossier contient des guillemets ou des `&`.
+            script = (
+                'on run argv\n'
+                '  tell application "Terminal" to do script '
+                '("cd " & quoted form of (item 1 of argv) & " && claude")\n'
+                'end run'
             )
+            subprocess.Popen(["osascript", "-e", script, cible], shell=False)
         else:
             return ("L'ouverture d'un terminal de code n'est pas supportee sur cet OS.", False)
         return f"Session de code ouverte dans un terminal, {USER_NAME}.", True

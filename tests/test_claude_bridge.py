@@ -46,3 +46,31 @@ def test_ouvrir_session_dossier_invalide_lance_sans_cwd(monkeypatch):
     assert ok is True
     _, kw = appels[0]
     assert kw.get("cwd") is None
+
+
+def test_ouvrir_session_macos_chemin_en_argv_pas_interpole(monkeypatch, tmp_path):
+    """Securite : le chemin est passe en ARGV a osascript (pas interpole dans
+    le script) -> pas d'injection AppleScript/shell via un nom de dossier."""
+    monkeypatch.setattr(cb.os, "name", "posix")
+
+    def _which(n):
+        if n == "claude":
+            return "/usr/local/bin/claude"
+        if n == "osascript":
+            return "/usr/bin/osascript"
+        return None  # x-terminal-emulator absent -> on tombe sur osascript
+
+    monkeypatch.setattr(cb.shutil, "which", _which)
+    appels = []
+    monkeypatch.setattr(cb.subprocess, "Popen", lambda args, **kw: appels.append((args, kw)))
+
+    cible = str(tmp_path)
+    msg, ok = cb.ouvrir_session_terminal(cible)
+    assert ok is True
+    args, _ = appels[0]
+    assert args[0] == "osascript"
+    # Le chemin est le DERNIER argv (transmis a osascript), PAS interpole :
+    assert args[-1] == cible
+    script = args[2]
+    assert cible not in script
+    assert "quoted form of" in script
