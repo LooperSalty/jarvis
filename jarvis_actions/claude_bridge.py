@@ -75,6 +75,48 @@ def lancer_claude_code(
         return f"Echec invocation Claude Code : {e}", False
 
 
+# Indicateur Windows CreateProcess : ouvrir une NOUVELLE console pour le process.
+_CREATE_NEW_CONSOLE = 0x00000010
+
+
+def ouvrir_session_terminal(cwd: str | None = None) -> tuple[str, bool]:
+    """Ouvre une session Claude Code INTERACTIVE dans une nouvelle fenetre terminal.
+
+    Contrairement a lancer_claude_code (one-shot `claude --print`), ouvre un vrai
+    terminal ou l'utilisateur dialogue avec Claude Code (tous les outils) dans
+    `cwd`. C'est l'equivalent in-app de la commande `jcode`.
+
+    Windows : nouvelle console (`cmd /k claude`). Autres OS : best-effort.
+    """
+    cli = shutil.which("claude")
+    if not cli:
+        return f"Claude Code n'est pas installe ou pas dans le PATH, {USER_NAME}.", False
+    dossier = cwd if (cwd and os.path.isdir(cwd)) else None
+    try:
+        if os.name == "nt":
+            # `cmd /k` garde la console ouverte apres le lancement de claude.
+            subprocess.Popen(
+                ["cmd", "/k", cli],
+                cwd=dossier,
+                creationflags=_CREATE_NEW_CONSOLE,
+                shell=False,
+            )
+        elif shutil.which("x-terminal-emulator"):  # Linux best-effort
+            subprocess.Popen(["x-terminal-emulator", "-e", cli], cwd=dossier, shell=False)
+        elif shutil.which("osascript"):  # macOS best-effort
+            cible = dossier or os.getcwd()
+            subprocess.Popen(
+                ["osascript", "-e",
+                 f'tell application "Terminal" to do script "cd \\"{cible}\\" && claude"'],
+                shell=False,
+            )
+        else:
+            return ("L'ouverture d'un terminal de code n'est pas supportee sur cet OS.", False)
+        return f"Session de code ouverte dans un terminal, {USER_NAME}.", True
+    except Exception as e:  # noqa: BLE001
+        return f"Echec ouverture de la session de code : {e}", False
+
+
 async def surveiller_inactivite(
     seuil_jours: float,
     callback,

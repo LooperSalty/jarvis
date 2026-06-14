@@ -1735,6 +1735,21 @@ async def _h_cowork_delegate(data: dict) -> dict:
     }
 
 
+async def _h_cowork_session(data: dict) -> dict:
+    """Ouvre une session de code Claude Code INTERACTIVE (terminal) dans le Cowork."""
+    if claude_bridge is None:
+        return {"action": "dash_cowork_session_result", "ok": False,
+                "error": "Module claude_bridge indisponible"}
+    config = jarvis_ui_config.charger() if jarvis_ui_config is not None else {}
+    folder = str(config.get("cowork_folder", "") or "")
+    if not folder or not os.path.isdir(folder):
+        return {"action": "dash_cowork_session_result", "ok": False,
+                "error": "Aucun dossier Cowork valide defini"}
+    msg, ok = await _en_executor(lambda: claude_bridge.ouvrir_session_terminal(folder))
+    return {"action": "dash_cowork_session_result", "ok": bool(ok),
+            "message": msg, "error": "" if ok else msg}
+
+
 # ==========================================
 # HANDLERS — SKILLS CLAUDE CODE (Cowork)
 # ==========================================
@@ -1807,6 +1822,7 @@ _HANDLERS = {
     "dash_cowork_status": _h_cowork_status,
     "dash_set_cowork": _h_set_cowork,
     "dash_cowork_delegate": _h_cowork_delegate,
+    "dash_cowork_session": _h_cowork_session,
 }
 
 
