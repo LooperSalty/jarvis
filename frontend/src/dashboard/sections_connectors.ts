@@ -285,6 +285,16 @@ function mount(root: HTMLElement): Cleanup {
   );
   root.appendChild(pSkills.root);
 
+  // ── Bloc Skills Claude Code (Cowork) ──
+  const pCcSkills = panel(
+    "Skills Claude Code (Cowork)",
+    "Ajoute en un clic des collections de skills a Claude Code : elles boostent le Cowork et la commande jcode."
+  );
+  const ccSkillsBox = el("div", "skills-list");
+  ccSkillsBox.appendChild(el("div", "empty", "Chargement..."));
+  pCcSkills.body.appendChild(ccSkillsBox);
+  root.appendChild(pCcSkills.root);
+
   // Serveurs dont l'accordeon est ouvert (conserve entre re-rendus)
   const openTools = new Set<string>();
 
@@ -355,9 +365,61 @@ function mount(root: HTMLElement): Cleanup {
     }
   }
 
+  function renderCcSkills(msg: ws.WsMessage): void {
+    clearChildren(ccSkillsBox);
+    if (!asBool(msg.claude_present)) {
+      ccSkillsBox.appendChild(
+        el(
+          "div",
+          "empty",
+          "Claude Code (claude) n'est pas installe ou pas dans le PATH."
+        )
+      );
+      return;
+    }
+    const installes = new Set(
+      asArray(msg.installes).map((r) => asString(r).toLowerCase())
+    );
+    const cat = asArray(msg.catalogue);
+    if (cat.length === 0) {
+      ccSkillsBox.appendChild(el("div", "empty", "Catalogue vide."));
+      return;
+    }
+    for (const rawEntry of cat) {
+      const e = asRecord(rawEntry);
+      const repo = asString(e.repo);
+      const row = el("div", "skill-row");
+      const main = el("div", "skill-main");
+      main.appendChild(el("strong", "", asString(e.nom)));
+      main.appendChild(el("span", "skill-desc", asString(e.description)));
+      main.appendChild(el("code", "skill-file", repo));
+      row.appendChild(main);
+
+      if (installes.has(repo.toLowerCase())) {
+        const done = button("Deja ajoute", "ghost");
+        done.disabled = true;
+        row.appendChild(done);
+      } else {
+        const addBtn = button("Ajouter", "primary");
+        addBtn.addEventListener("click", () => {
+          addBtn.disabled = true;
+          addBtn.textContent = "Ajout...";
+          if (!ws.send({ type: "dash_cc_skill_add", repo })) {
+            showToast("Backend deconnecte.", false);
+            addBtn.disabled = false;
+            addBtn.textContent = "Ajouter";
+          }
+        });
+        row.appendChild(addBtn);
+      }
+      ccSkillsBox.appendChild(row);
+    }
+  }
+
   function fetchAll(): void {
     ws.send({ type: "dash_mcp_list" });
     ws.send({ type: "dash_skills_list" });
+    ws.send({ type: "dash_cc_skills" });
   }
 
   addBtn.addEventListener("click", () => {
@@ -400,6 +462,14 @@ function mount(root: HTMLElement): Cleanup {
   const offSkills = ws.on("dash_skills_list", (msg) => {
     renderSkills(msg.skills);
   });
+  const offCcSkills = ws.on("dash_cc_skills", (msg) => {
+    renderCcSkills(msg);
+  });
+  const offCcAdded = ws.on("dash_cc_skill_added", (msg) => {
+    if (asBool(msg.ok)) showToast(asString(msg.message, "Skill ajoutee."));
+    else showToast(asString(msg.message, "Echec de l'ajout."), false);
+    ws.send({ type: "dash_cc_skills" });
+  });
   const offStatus = ws.onStatus((ok) => {
     if (ok) fetchAll();
   });
@@ -414,6 +484,8 @@ function mount(root: HTMLElement): Cleanup {
     offCatalog();
     offTools();
     offSkills();
+    offCcSkills();
+    offCcAdded();
     offStatus();
   };
 }

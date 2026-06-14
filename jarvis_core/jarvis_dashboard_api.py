@@ -115,6 +115,12 @@ except Exception as e:
     print(f"[DASHBOARD] Module claude_bridge indisponible : {e}")
 
 try:
+    from jarvis_actions import cc_skills
+except Exception as e:
+    cc_skills = None
+    print(f"[DASHBOARD] Module cc_skills indisponible : {e}")
+
+try:
     from jarvis_actions import memory_sync
 except Exception as e:
     memory_sync = None
@@ -1730,6 +1736,35 @@ async def _h_cowork_delegate(data: dict) -> dict:
 
 
 # ==========================================
+# HANDLERS — SKILLS CLAUDE CODE (Cowork)
+# ==========================================
+async def _h_cc_skills(data: dict) -> dict:
+    """Catalogue de skills Claude Code + marketplaces deja ajoutees."""
+    if cc_skills is None:
+        return {"action": "dash_cc_skills", "claude_present": False,
+                "catalogue": [], "installes": []}
+    present = cc_skills.claude_disponible()
+    installes = await _en_executor(cc_skills.marketplaces_installes) if present else set()
+    return {
+        "action": "dash_cc_skills",
+        "claude_present": present,
+        "catalogue": cc_skills.CATALOGUE,
+        "installes": sorted(installes),
+    }
+
+
+async def _h_cc_skill_add(data: dict) -> dict:
+    """Ajoute une marketplace de skills Claude Code (liste blanche = CATALOGUE)."""
+    if cc_skills is None:
+        return {"action": "dash_cc_skill_added", "ok": False,
+                "message": "Module indisponible", "repo": ""}
+    repo = str(data.get("repo", "") or "")
+    ok, message = await _en_executor(lambda: cc_skills.ajouter_marketplace(repo))
+    return {"action": "dash_cc_skill_added", "ok": bool(ok),
+            "message": message, "repo": repo}
+
+
+# ==========================================
 # DISPATCH
 # ==========================================
 _HANDLERS = {
@@ -1758,6 +1793,8 @@ _HANDLERS = {
     "dash_mcp_catalog": _h_mcp_catalog,
     "dash_skills_list": _h_skills_list,
     "dash_skill_toggle": _h_skill_toggle,
+    "dash_cc_skills": _h_cc_skills,
+    "dash_cc_skill_add": _h_cc_skill_add,
     "dash_routines_list": _h_routines_list,
     "dash_routine_save": _h_routine_save,
     "dash_routine_delete": _h_routine_delete,
