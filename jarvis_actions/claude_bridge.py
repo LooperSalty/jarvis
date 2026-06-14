@@ -17,6 +17,68 @@ from jarvis_config import USER_NAME
 
 CLAUDE_PROJECTS_DIR = Path(os.path.expanduser("~/.claude/projects"))
 
+# Windows : pas de fenetre console quand Jarvis.exe (sans console) lance `claude`.
+_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+
+# Proxy free-claude-code (modele local gratuit) — meme cible que la commande jarvis.
+_PROXY_URL = "http://127.0.0.1:8082"
+_PROXY_TOKEN = "freecc"
+
+
+def dossier_cowork_defaut() -> str:
+    """Dossier de travail Cowork par defaut, cree automatiquement si absent.
+
+    Utilise quand aucun dossier Cowork n'est defini : ~/JarvisCowork. Repli sur
+    le home si la creation echoue."""
+    base = Path.home() / "JarvisCowork"
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+        return str(base)
+    except Exception:  # noqa: BLE001
+        return str(Path.home())
+
+
+def chat_claude_code(prompt: str, cwd: str | None = None, model: str = "",
+                     permission_mode: str = "default", continuer: bool = False,
+                     via_proxy: bool = True, timeout_s: float = 300.0) -> tuple[str, bool]:
+    """Un tour de chat AGENTIQUE Claude Code (mode --print) dans `cwd`.
+
+    Claude Code execute la tache (edition de fichiers, commandes) et renvoie sa
+    reponse texte. `continuer` -> --continue (poursuit la conversation du dossier),
+    sinon nouvelle conversation. `model`/`permission_mode` -> --model/--permission-mode.
+    `via_proxy` -> route vers le modele LOCAL (proxy free-claude-code) = gratuit.
+    """
+    cli = shutil.which("claude")
+    if not cli:
+        return f"Claude Code n'est pas installe ou pas dans le PATH, {USER_NAME}.", False
+    dossier = cwd if (cwd and os.path.isdir(cwd)) else None
+
+    args = [cli, "--print"]
+    if continuer:
+        args.append("--continue")
+    if model:
+        args += ["--model", model]
+    args += _args_mode(permission_mode)
+    args.append(prompt)
+
+    env = os.environ.copy()
+    if via_proxy:
+        env["ANTHROPIC_BASE_URL"] = _PROXY_URL
+        env["ANTHROPIC_AUTH_TOKEN"] = _PROXY_TOKEN
+
+    try:
+        result = subprocess.run(
+            args, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=timeout_s, cwd=dossier, shell=False, creationflags=_NO_WINDOW, env=env,
+        )
+    except subprocess.TimeoutExpired:
+        return f"Claude Code a depasse {int(timeout_s)} s, j'abandonne.", False
+    except Exception as e:  # noqa: BLE001
+        return f"Echec invocation Claude Code : {e}", False
+    if result.returncode == 0:
+        return (result.stdout.strip() or "(reponse vide)"), True
+    return f"Claude Code a renvoye une erreur : {(result.stderr or '').strip()[:300]}", False
+
 
 def derniere_activite_claude_code() -> datetime | None:
     """mtime du fichier le plus recent dans ~/.claude/projects/. None si rien."""

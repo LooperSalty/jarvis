@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import time
 import urllib.request
 
 PORT = 8082
@@ -57,6 +58,24 @@ def demarrer() -> tuple[bool, str]:
         return True, "Demarrage du proxy lance (quelques secondes)."
     except Exception as e:  # noqa: BLE001
         return False, f"Echec du demarrage : {e}"
+
+
+def assurer_demarre(timeout: float = 15.0) -> bool:
+    """Garantit que le proxy tourne : True si deja/maintenant healthy.
+
+    Le demarre s'il est absent puis attend /health jusqu'a `timeout`. Bloquant
+    (a appeler dans un executor, jamais sur l'event loop)."""
+    if en_marche():
+        return True
+    ok, _ = demarrer()
+    if not ok:
+        return False
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if en_marche(timeout=2.0):
+            return True
+        time.sleep(1.0)
+    return en_marche()
 
 
 def statut() -> dict:
