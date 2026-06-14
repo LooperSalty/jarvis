@@ -170,23 +170,39 @@ export function applyDashboardTheme(cfg: Partial<UiConfig>): void {
   const [r, g, b] = hexToRgb(accent);
   const root = document.documentElement.style;
   root.setProperty("--accent", accent);
-  root.setProperty("--accent-border", `rgba(${r}, ${g}, ${b}, 0.45)`);
 
   const clair = resolveMode(cfg) === "clair";
-  // Marqueur pour d'eventuels selecteurs CSS qui s'adaptent au mode.
+  // Marqueur pour les selecteurs CSS qui s'adaptent au mode.
   document.documentElement.setAttribute("data-mode", clair ? "clair" : "sombre");
 
   if (clair) {
-    // Fond clair teinte de l'accent, panneaux blancs, texte sombre.
-    root.setProperty("--bg-0", shade(accent, 0.93));
-    root.setProperty("--bg-1", shade(accent, 0.86));
-    root.setProperty("--panel", "rgba(255, 255, 255, 0.86)");
-    root.setProperty("--panel-border", `rgba(${r}, ${g}, ${b}, 0.30)`);
-    root.setProperty("--accent-dim", `rgba(${r}, ${g}, ${b}, 0.14)`);
-    root.setProperty("--text", "#16222e");
-    root.setProperty("--text-dim", "#5a6b7a");
+    // Accent ASSOMBRI pour le texte (le cyan vif est illisible sur blanc, ~1.2:1).
+    const accentText = shade(accent, -0.45);
+    const [tr, tg, tb] = hexToRgb(accentText);
+    root.setProperty("--accent-text", accentText);
+    root.setProperty("--accent-dim", `rgba(${tr}, ${tg}, ${tb}, 0.12)`);
+    root.setProperty("--accent-border", `rgba(${tr}, ${tg}, ${tb}, 0.42)`);
+    // Fond clair neutre, panneaux blancs opaques (elevation nette), texte sombre.
+    root.setProperty("--bg-0", "#eef3f7");
+    root.setProperty("--bg-1", "#dde7ee");
+    root.setProperty("--panel", "rgba(255, 255, 255, 0.96)");
+    root.setProperty("--panel-border", "rgba(15, 30, 45, 0.16)");
+    root.setProperty("--surface", "rgba(255, 255, 255, 0.96)");
+    root.setProperty("--surface-2", "rgba(15, 30, 45, 0.05)");
+    root.setProperty("--surface-3", "rgba(15, 30, 45, 0.07)");
+    root.setProperty("--border", "rgba(15, 30, 45, 0.16)");
+    root.setProperty("--text", "#15222e");
+    root.setProperty("--text-dim", "#4a5a68");
+    root.setProperty("--ok", "#1d8f50");
+    root.setProperty("--bad", "#c0392b");
+    root.setProperty("--shadow-1", "0 1px 3px rgba(15, 30, 45, 0.10), 0 6px 16px rgba(15, 30, 45, 0.07)");
+    root.setProperty("--shadow-2", "0 8px 28px rgba(15, 30, 45, 0.14)");
   } else {
-    // Mode sombre (defaut historique) : fond du theme, panneaux/texte sombres.
+    // Mode sombre : fond teinte par le theme, accent vif lisible.
+    const accentText = shade(accent, 0.12);
+    root.setProperty("--accent-text", accentText);
+    root.setProperty("--accent-dim", `rgba(${r}, ${g}, ${b}, 0.14)`);
+    root.setProperty("--accent-border", `rgba(${r}, ${g}, ${b}, 0.45)`);
     const theme = cfg.theme || "cyan";
     const [bg0, bg1] =
       theme !== "custom" && THEME_BG[theme]
@@ -194,11 +210,18 @@ export function applyDashboardTheme(cfg: Partial<UiConfig>): void {
         : [shade(accent, -0.95), shade(accent, -0.88)];
     root.setProperty("--bg-0", bg0);
     root.setProperty("--bg-1", bg1);
-    root.setProperty("--panel", "rgba(10, 16, 28, 0.85)");
-    root.setProperty("--panel-border", `rgba(${r}, ${g}, ${b}, 0.18)`);
-    root.setProperty("--accent-dim", `rgba(${r}, ${g}, ${b}, 0.12)`);
-    root.setProperty("--text", "#cfe9f5");
-    root.setProperty("--text-dim", "#7d93a8");
+    root.setProperty("--panel", "rgba(12, 19, 32, 0.92)");
+    root.setProperty("--panel-border", `rgba(${r}, ${g}, ${b}, 0.30)`);
+    root.setProperty("--surface", "rgba(12, 19, 32, 0.92)");
+    root.setProperty("--surface-2", "rgba(255, 255, 255, 0.05)");
+    root.setProperty("--surface-3", "rgba(0, 0, 0, 0.28)");
+    root.setProperty("--border", "rgba(150, 200, 230, 0.18)");
+    root.setProperty("--text", "#dceaf3");
+    root.setProperty("--text-dim", "#9db4c8");
+    root.setProperty("--ok", "#3ddc84");
+    root.setProperty("--bad", "#ff6b5e");
+    root.setProperty("--shadow-1", "0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35)");
+    root.setProperty("--shadow-2", "0 12px 34px rgba(0, 0, 0, 0.5)");
   }
 }
 
