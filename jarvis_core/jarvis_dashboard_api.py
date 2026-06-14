@@ -121,6 +121,12 @@ except Exception as e:
     print(f"[DASHBOARD] Module cc_skills indisponible : {e}")
 
 try:
+    from jarvis_actions import free_code
+except Exception as e:
+    free_code = None
+    print(f"[DASHBOARD] Module free_code indisponible : {e}")
+
+try:
     from jarvis_actions import memory_sync
 except Exception as e:
     memory_sync = None
@@ -1751,6 +1757,27 @@ async def _h_cowork_session(data: dict) -> dict:
 
 
 # ==========================================
+# HANDLERS — CODE (free-claude-code / proxy fcc-server)
+# ==========================================
+async def _h_fcc_status(data: dict) -> dict:
+    """Statut du proxy free-claude-code (installe, en marche, URL admin)."""
+    if free_code is None:
+        return {"action": "dash_fcc_status", "installe": False,
+                "en_marche": False, "url_admin": "", "port": 0}
+    st = await _en_executor(free_code.statut)
+    return {"action": "dash_fcc_status", **st}
+
+
+async def _h_fcc_start(data: dict) -> dict:
+    """Demarre le proxy free-claude-code s'il ne tourne pas."""
+    if free_code is None:
+        return {"action": "dash_fcc_started", "ok": False,
+                "message": "Module free_code indisponible"}
+    ok, message = await _en_executor(free_code.demarrer)
+    return {"action": "dash_fcc_started", "ok": bool(ok), "message": message}
+
+
+# ==========================================
 # HANDLERS — SKILLS CLAUDE CODE (Cowork)
 # ==========================================
 async def _h_cc_skills(data: dict) -> dict:
@@ -1810,6 +1837,8 @@ _HANDLERS = {
     "dash_skill_toggle": _h_skill_toggle,
     "dash_cc_skills": _h_cc_skills,
     "dash_cc_skill_add": _h_cc_skill_add,
+    "dash_fcc_status": _h_fcc_status,
+    "dash_fcc_start": _h_fcc_start,
     "dash_routines_list": _h_routines_list,
     "dash_routine_save": _h_routine_save,
     "dash_routine_delete": _h_routine_delete,
