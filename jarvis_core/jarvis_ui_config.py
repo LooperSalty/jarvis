@@ -5,6 +5,7 @@ jarvis_profile, sinon racine du repo). Fichier gitignore (jarvis_ui_config.json)
 modele versionne examples/jarvis_ui_config_example.json.
 
 Champs :
+  mode          : clair / sombre / auto (auto = suit le theme du systeme)
   theme         : id du theme du dashboard (cle de THEMES) ou "custom"
   accent        : couleur d'accent du dashboard "#rrggbb" (utilisee si theme=custom)
   orb_style     : id de la palette de l'orbe (cle de ORB_STYLES) ou "custom"
@@ -36,6 +37,8 @@ def _dossier_donnees() -> Path:
 CONFIG_PATH: Path = _dossier_donnees() / "jarvis_ui_config.json"
 
 # Listes blanches : tout id hors de ces tuples retombe sur le defaut.
+# Mode clair/sombre/auto du dashboard ("auto" suit le theme du systeme).
+MODES: tuple[str, ...] = ("auto", "clair", "sombre")
 THEMES: tuple[str, ...] = ("cyan", "violet", "emeraude", "ambre", "rose", "rouge", "custom")
 ORB_STYLES: tuple[str, ...] = ("classique", "ironman", "nebuleuse", "emeraude", "givre", "custom")
 # Forme visuelle de l'orbe (rendu Three.js) — distincte de la palette de couleur.
@@ -44,6 +47,7 @@ ORB_SHAPES: tuple[str, ...] = ("galaxie", "oeil", "anneau")
 _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 DEFAUTS: dict[str, Any] = {
+    "mode": "auto",
     "theme": "cyan",
     "accent": "#4be1ff",
     "orb_style": "classique",
@@ -88,6 +92,7 @@ def _normaliser(brut: Any) -> dict[str, Any]:
     partiel ou corrompu (chaque champ retombe sur son defaut si invalide)."""
     src = brut if isinstance(brut, dict) else {}
     return {
+        "mode": _choix_valide(src.get("mode"), MODES, DEFAUTS["mode"]),
         "theme": _choix_valide(src.get("theme"), THEMES, DEFAUTS["theme"]),
         "accent": _hex_valide(src.get("accent"), DEFAUTS["accent"]),
         "orb_style": _choix_valide(src.get("orb_style"), ORB_STYLES, DEFAUTS["orb_style"]),

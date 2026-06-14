@@ -11,6 +11,7 @@
 import type { OrbState, OrbShape } from "./orb";
 
 export interface UiConfig {
+  mode: string; // "auto" | "clair" | "sombre" (auto = suit le systeme)
   theme: string;
   accent: string;
   orb_style: string;
@@ -18,6 +19,13 @@ export interface UiConfig {
   orb_shape: string;
   cowork_folder?: string;
 }
+
+/** Modes d'apparence du dashboard (clair / sombre / detection systeme). */
+export const MODE_LABELS: Record<string, string> = {
+  auto: "Détection système (auto)",
+  clair: "Clair",
+  sombre: "Sombre",
+};
 
 export type OrbPaletteFull = Record<OrbState, string>;
 
@@ -137,24 +145,76 @@ export function resolveOrbShape(cfg: Partial<UiConfig>): OrbShape {
   return ORB_SHAPES.includes(s) ? s : "galaxie";
 }
 
-/** Applique le theme du dashboard via les variables CSS (accent + fond). Chaque
- *  theme change l'accent ET la teinte du fond pour un rendu nettement distinct. */
+/** True si le systeme d'exploitation est en mode clair. */
+function systemeClair(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-color-scheme: light)").matches
+  );
+}
+
+/** Mode d'apparence effectif : "clair" ou "sombre" ("auto" suit le systeme). */
+export function resolveMode(cfg: Partial<UiConfig>): "clair" | "sombre" {
+  const m = cfg.mode || "auto";
+  if (m === "clair") return "clair";
+  if (m === "sombre") return "sombre";
+  return systemeClair() ? "clair" : "sombre";
+}
+
+/** Applique le theme du dashboard via les variables CSS (accent + fond + mode).
+ *  Le theme change l'accent ET la teinte du fond ; le mode (clair/sombre/auto)
+ *  bascule fond, panneaux et texte pour rester lisible. */
 export function applyDashboardTheme(cfg: Partial<UiConfig>): void {
   const accent = resolveAccent(cfg);
   const [r, g, b] = hexToRgb(accent);
   const root = document.documentElement.style;
   root.setProperty("--accent", accent);
-  root.setProperty("--accent-dim", `rgba(${r}, ${g}, ${b}, 0.12)`);
   root.setProperty("--accent-border", `rgba(${r}, ${g}, ${b}, 0.45)`);
-  root.setProperty("--panel-border", `rgba(${r}, ${g}, ${b}, 0.18)`);
 
-  const theme = cfg.theme || "cyan";
-  const [bg0, bg1] =
-    theme !== "custom" && THEME_BG[theme]
-      ? THEME_BG[theme]
-      : [shade(accent, -0.95), shade(accent, -0.88)];
-  root.setProperty("--bg-0", bg0);
-  root.setProperty("--bg-1", bg1);
+  const clair = resolveMode(cfg) === "clair";
+  // Marqueur pour d'eventuels selecteurs CSS qui s'adaptent au mode.
+  document.documentElement.setAttribute("data-mode", clair ? "clair" : "sombre");
+
+  if (clair) {
+    // Fond clair teinte de l'accent, panneaux blancs, texte sombre.
+    root.setProperty("--bg-0", shade(accent, 0.93));
+    root.setProperty("--bg-1", shade(accent, 0.86));
+    root.setProperty("--panel", "rgba(255, 255, 255, 0.86)");
+    root.setProperty("--panel-border", `rgba(${r}, ${g}, ${b}, 0.30)`);
+    root.setProperty("--accent-dim", `rgba(${r}, ${g}, ${b}, 0.14)`);
+    root.setProperty("--text", "#16222e");
+    root.setProperty("--text-dim", "#5a6b7a");
+  } else {
+    // Mode sombre (defaut historique) : fond du theme, panneaux/texte sombres.
+    const theme = cfg.theme || "cyan";
+    const [bg0, bg1] =
+      theme !== "custom" && THEME_BG[theme]
+        ? THEME_BG[theme]
+        : [shade(accent, -0.95), shade(accent, -0.88)];
+    root.setProperty("--bg-0", bg0);
+    root.setProperty("--bg-1", bg1);
+    root.setProperty("--panel", "rgba(10, 16, 28, 0.85)");
+    root.setProperty("--panel-border", `rgba(${r}, ${g}, ${b}, 0.18)`);
+    root.setProperty("--accent-dim", `rgba(${r}, ${g}, ${b}, 0.12)`);
+    root.setProperty("--text", "#cfe9f5");
+    root.setProperty("--text-dim", "#7d93a8");
+  }
+}
+
+/** En mode "auto", reapplique le theme quand le systeme bascule clair/sombre.
+ *  Retourne une fonction de nettoyage. No-op si matchMedia indisponible. */
+export function watchSystemTheme(getCfg: () => Partial<UiConfig>): () => void {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return () => {};
+  }
+  const mq = window.matchMedia("(prefers-color-scheme: light)");
+  const onChange = () => {
+    const cfg = getCfg();
+    if ((cfg.mode || "auto") === "auto") applyDashboardTheme(cfg);
+  };
+  mq.addEventListener("change", onChange);
+  return () => mq.removeEventListener("change", onChange);
 }
 
 const LS_KEY = "jarvis_ui_config";

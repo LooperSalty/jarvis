@@ -18,7 +18,7 @@ import {
   showToast,
   asString,
 } from "./sections";
-import { applyDashboardTheme, lireConfigLocale } from "../ui_theme";
+import { applyDashboardTheme, lireConfigLocale, watchSystemTheme } from "../ui_theme";
 import "./dashboard.css";
 
 // Applique le theme personnalise INSTANTANEMENT depuis le cache local (avant
@@ -26,6 +26,10 @@ import "./dashboard.css";
 // Personnalisation resynchronise ensuite depuis le backend (source de verite).
 const _cfgLocale = lireConfigLocale();
 if (_cfgLocale) applyDashboardTheme(_cfgLocale);
+
+// Mode "auto" : reapplique quand le systeme bascule clair/sombre. Lit le cache
+// local (mis a jour a chaque changement) pour connaitre le mode courant.
+watchSystemTheme(() => lireConfigLocale() || {});
 
 const appRoot = document.getElementById("app");
 if (!appRoot) {

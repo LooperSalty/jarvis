@@ -1103,3 +1103,26 @@ select.input { appearance: auto; }
 /* Conteneurs flex qui WRAP -> marge droite + basse sur chaque enfant */
 .no-flex-gap .mcp-controls > *,
 .no-flex-gap .usages-grid > * { margin: 0 8px 8px 0; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Mode CLAIR — data-mode="clair" pose sur <html> par applyDashboardTheme().
+   Les variables (--bg, --panel, --text…) basculent deja ; ici on rattrape les
+   surfaces codees EN DUR en rgba(0,0,0,…)/rgba(255,255,255,…) qui, sinon,
+   donneraient du texte sombre sur fond sombre (illisible) en mode clair.
+   ════════════════════════════════════════════════════════════════════════════ */
+:root[data-mode="clair"] .input {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.16);
+}
+:root[data-mode="clair"] .input:focus { background: rgba(0, 0, 0, 0.06); }
+:root[data-mode="clair"] .btn {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.14);
+}
+:root[data-mode="clair"] .btn:hover { background: rgba(0, 0, 0, 0.09); }
+/* Sous-panneaux a fond sombre -> fond clair (texte = --text sombre dessus) */
+:root[data-mode="clair"] #memory-graph,
+:root[data-mode="clair"] .mcp-tools,
+:root[data-mode="clair"] .cowork-output { background: rgba(0, 0, 0, 0.04); }
+/* Bordures blanches faibles -> sombres faibles pour rester visibles sur clair */
+:root[data-mode="clair"] .panel { border-color: rgba(0, 0, 0, 0.10); }
