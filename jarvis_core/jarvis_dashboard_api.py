@@ -121,6 +121,12 @@ except Exception as e:
     print(f"[DASHBOARD] Module cc_skills indisponible : {e}")
 
 try:
+    from jarvis_actions import skills_sh
+except Exception as e:
+    skills_sh = None
+    print(f"[DASHBOARD] Module skills_sh indisponible : {e}")
+
+try:
     from jarvis_actions import free_code
 except Exception as e:
     free_code = None
@@ -1866,6 +1872,31 @@ async def _h_cc_skill_add(data: dict) -> dict:
 
 
 # ==========================================
+# HANDLERS — SKILLS skills.sh (npx skills add)
+# ==========================================
+async def _h_skills_sh(data: dict) -> dict:
+    """Catalogue de skills skills.sh (installables via npx skills add)."""
+    if skills_sh is None:
+        return {"action": "dash_skills_sh", "npx_present": False, "catalogue": []}
+    return {
+        "action": "dash_skills_sh",
+        "npx_present": skills_sh.npx_disponible(),
+        "catalogue": skills_sh.CATALOGUE,
+    }
+
+
+async def _h_skills_sh_add(data: dict) -> dict:
+    """Installe un skill skills.sh (liste blanche = CATALOGUE)."""
+    if skills_sh is None:
+        return {"action": "dash_skills_sh_added", "ok": False,
+                "message": "Module indisponible", "repo": ""}
+    repo = str(data.get("repo", "") or "")
+    ok, message = await _en_executor(lambda: skills_sh.installer_skill(repo))
+    return {"action": "dash_skills_sh_added", "ok": bool(ok),
+            "message": message, "repo": repo}
+
+
+# ==========================================
 # DISPATCH
 # ==========================================
 _HANDLERS = {
@@ -1896,6 +1927,8 @@ _HANDLERS = {
     "dash_skill_toggle": _h_skill_toggle,
     "dash_cc_skills": _h_cc_skills,
     "dash_cc_skill_add": _h_cc_skill_add,
+    "dash_skills_sh": _h_skills_sh,
+    "dash_skills_sh_add": _h_skills_sh_add,
     "dash_fcc_status": _h_fcc_status,
     "dash_fcc_start": _h_fcc_start,
     "dash_code_model": _h_code_model,
