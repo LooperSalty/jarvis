@@ -17,6 +17,7 @@ import { sectionMemory } from "./sections_memory";
 import { sectionChat } from "./sections_chat";
 import { sectionAutomation } from "./sections_automation";
 import { sectionConnectors } from "./sections_connectors";
+import { sectionCcSkills } from "./sections_cc_skills";
 import { sectionModel } from "./sections_model";
 import { sectionPersonnalisation } from "./sections_personnalisation";
 import { sectionCowork } from "./sections_cowork";
@@ -175,6 +176,7 @@ export const SECTIONS: readonly Section[] = [
   sectionChat,
   sectionAutomation,
   sectionConnectors,
+  sectionCcSkills,
   sectionModel,
   sectionPersonnalisation,
   sectionCowork,
