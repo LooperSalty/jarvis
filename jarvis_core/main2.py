@@ -1085,6 +1085,24 @@ async def request_screen_capture():
 # ==========================================
 # PROMPT SYSTEME
 # ==========================================
+_JOURS_FR = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
+_MOIS_FR = ["janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet",
+            "aout", "septembre", "octobre", "novembre", "decembre"]
+
+
+def _contexte_temporel() -> str:
+    """Date et heure actuelles en francais, injectees dans les prompts pour que
+    le LLM ne les HALLUCINE pas (sinon il devine une date proche de son cutoff
+    d'entrainement, ex: '15 mai 2024')."""
+    n = datetime.now()
+    return (
+        f"CONTEXTE TEMPOREL (source de verite, ne JAMAIS l'inventer) : nous sommes le "
+        f"{_JOURS_FR[n.weekday()]} {n.day} {_MOIS_FR[n.month - 1]} {n.year}, il est "
+        f"{n.strftime('%H:%M')}. Utilise TOUJOURS cette date et cette heure pour "
+        "repondre a toute question de date, de jour ou d'heure."
+    )
+
+
 def construire_system_prompt(query: str | None = None):
     # `query` = texte utilisateur courant, transmis pour la recherche RAG ciblee.
     # Defaut None -> comportement historique (toute la memoire).
@@ -1104,6 +1122,7 @@ def construire_system_prompt(query: str | None = None):
         "- N'UTILISE JAMAIS de caractères Markdown (comme **, * ou #) dans tes réponses, car ils sont lus à voix haute par le système de synthèse vocale.\n"
         "- Reste poli mais garde une touche de sarcasme affectueux propre à ton personnage.\n\n"
         + CREATOR_INFO
+        + "\n\n" + _contexte_temporel()
     )
     # Profil utilisateur enrichi (famille, adresse, habitudes — edite via le dashboard)
     if jarvis_profile:
@@ -2408,6 +2427,7 @@ def _prompt_ollama_systeme():
         f"Tu es JARVIS, l'assistant dev personnel de {USER_NAME}. Tu parles directement a {USER_NAME} (l'utilisateur "
         f"que tu vois EST {USER_NAME}). Tu tournes 100% en local via Ollama (qwen2.5:7b) avec une memoire "
         "persistante synchronisee avec son vault Obsidian.\n\n"
+        + _contexte_temporel() + "\n\n"
         f"PROFIL DE {USER_NAME} :\n"
         "- Developpeur. Travaille sur des projets perso (IA, web, automation).\n"
         "- Utilise Windows, VSCode, Claude Code, Ollama, Obsidian.\n\n"
