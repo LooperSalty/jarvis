@@ -23,6 +23,7 @@ import {
 import {
   THEME_ACCENTS,
   THEME_LABELS,
+  MODE_LABELS,
   ORB_PALETTES,
   ORB_LABELS,
   ORB_SHAPES,
@@ -34,12 +35,21 @@ import {
   type UiConfig,
 } from "../ui_theme";
 
+const MODE_IDS = ["auto", "clair", "sombre"];
 const THEME_IDS = ["cyan", "violet", "emeraude", "ambre", "rose", "rouge"];
 const ORB_IDS = ["classique", "ironman", "nebuleuse", "emeraude", "givre"];
+
+// Apercu de pastille par mode : clair=blanc, sombre=noir, auto=les deux.
+function apercuMode(id: string): string {
+  if (id === "clair") return "#f4f6f8";
+  if (id === "sombre") return "#10151f";
+  return "linear-gradient(135deg, #f4f6f8 50%, #10151f 50%)";
+}
 
 function lireConfig(msg: ws.WsMessage): Partial<UiConfig> {
   const c = asRecord(msg.config);
   return {
+    mode: asString(c.mode, "auto"),
     theme: asString(c.theme, "cyan"),
     accent: asString(c.accent, "#4be1ff"),
     orb_style: asString(c.orb_style, "classique"),
@@ -51,12 +61,22 @@ function lireConfig(msg: ws.WsMessage): Partial<UiConfig> {
 
 function mount(root: HTMLElement): Cleanup {
   let config: Partial<UiConfig> = {
+    mode: "auto",
     theme: "cyan",
     accent: "#4be1ff",
     orb_style: "classique",
     orb_color: "#4ca8e8",
     orb_shape: "galaxie",
   };
+
+  // ── Panneau mode d'apparence (clair / sombre / auto) ──
+  const modePanel = panel(
+    "Mode d'apparence",
+    "Clair, sombre, ou detection automatique du theme de votre systeme."
+  );
+  const modeGrid = el("div", "swatch-grid");
+  modePanel.body.appendChild(modeGrid);
+  root.appendChild(modePanel.root);
 
   // ── Panneau theme du dashboard ──
   const themePanel = panel(
@@ -110,6 +130,13 @@ function mount(root: HTMLElement): Cleanup {
     ecrireConfigLocale(config);
   }
 
+  function choisirMode(id: string): void {
+    config = { ...config, mode: id };
+    appliquerLocal();
+    renderModes();
+    envoyer({ mode: id });
+  }
+
   function choisirTheme(id: string): void {
     config = { ...config, theme: id };
     appliquerLocal();
@@ -160,6 +187,22 @@ function mount(root: HTMLElement): Cleanup {
     }
   }
 
+  function renderModes(): void {
+    clearChildren(modeGrid);
+    for (const id of MODE_IDS) {
+      const sw = el("button", "swatch") as HTMLButtonElement;
+      sw.type = "button";
+      const dot = el("span", "swatch-dot");
+      dot.style.background = apercuMode(id);
+      dot.style.border = "1px solid rgba(128,128,128,0.4)";
+      sw.appendChild(dot);
+      sw.appendChild(el("span", "swatch-label", MODE_LABELS[id] || id));
+      if ((config.mode || "auto") === id) sw.classList.add("active");
+      sw.addEventListener("click", () => choisirMode(id));
+      modeGrid.appendChild(sw);
+    }
+  }
+
   function renderThemes(): void {
     clearChildren(themeGrid);
     for (const id of THEME_IDS) {
@@ -206,6 +249,7 @@ function mount(root: HTMLElement): Cleanup {
     }
     config = { ...config, ...lireConfig(msg) };
     appliquerLocal();
+    renderModes();
     renderThemes();
     renderShapes();
     renderOrbs();
@@ -220,6 +264,7 @@ function mount(root: HTMLElement): Cleanup {
   });
 
   // Etat initial : rendu immediat (cache deja applique par main.ts) + fetch.
+  renderModes();
   renderThemes();
   renderShapes();
   renderOrbs();
