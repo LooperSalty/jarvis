@@ -197,6 +197,10 @@ html, body {
   flex-direction: column;
   gap: 12px;
 }
+/* Repli QtWebEngine (Chromium 83 ne gere pas le flex `gap`) : sans ca, le gap
+   vaut 0, la hauteur du panel est mal calculee et le dernier element (ex: bouton
+   "Analyser mon PC") est coupe par l'overflow:hidden du panel. */
+.panel-body > * + * { margin-top: 12px; }
 
 /* ── Formulaires ────────────────────────────────────────────── */
 

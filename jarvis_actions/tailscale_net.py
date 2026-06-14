@@ -18,12 +18,16 @@ psutil est optionnel : son absence degrade proprement (-> pas de repli interface
 from __future__ import annotations
 
 import ipaddress
+import os
 import shutil
 import socket
 import subprocess
 
 # Plage CGNAT partagee utilisee par Tailscale pour les IP du tailnet.
 _TAILSCALE_CGNAT = ipaddress.ip_network("100.64.0.0/10")
+
+# Windows : pas de fenetre console quand Jarvis.exe (sans console) lance la CLI.
+_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 # Port de l'interface mobile servie par Jarvis (cf. serveur HTTP de main2).
 PORT_MOBILE = 8080
@@ -49,6 +53,7 @@ def _ip_via_cli() -> str:
         r = subprocess.run(
             [cli, "ip", "-4"],
             capture_output=True, text=True, timeout=4, shell=False,
+            creationflags=_NO_WINDOW,
         )
     except Exception:  # noqa: BLE001 - CLI capricieuse / timeout / droits
         return ""
