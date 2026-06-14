@@ -66,8 +66,19 @@ function mount(root: HTMLElement): Cleanup {
   taskPanel.body.appendChild(resultEl);
   root.appendChild(taskPanel.root);
 
+  // ── Panneau session de code interactive (terminal) ──
+  const sessionPanel = panel(
+    "Session de code interactive",
+    "Ouvre un terminal Claude Code (tous les outils) dans le dossier ci-dessus — comme la commande jcode."
+  );
+  const sessionBtn = button("Ouvrir une session de code", "primary");
+  sessionPanel.body.appendChild(sessionBtn);
+  root.appendChild(sessionPanel.root);
+
   function majBoutonRun(): void {
-    runBtn.disabled = !(claudeDispo && dossierValide);
+    const pret = claudeDispo && dossierValide;
+    runBtn.disabled = !pret;
+    sessionBtn.disabled = !pret;
   }
 
   function renderStatus(msg: ws.WsMessage): void {
@@ -158,10 +169,23 @@ function mount(root: HTMLElement): Cleanup {
     }
   });
 
+  sessionBtn.addEventListener("click", () => {
+    if (ws.send({ type: "dash_cowork_session" })) {
+      showToast("Ouverture du terminal de code…");
+    } else {
+      showToast("Backend deconnecte.", false);
+    }
+  });
+
   // ── Abonnements WS ──
   const offCowork = ws.on("dash_cowork", (msg) => {
     if (asString(msg.error)) showToast(asString(msg.error), false);
     renderStatus(msg);
+  });
+
+  const offSession = ws.on("dash_cowork_session_result", (msg) => {
+    if (asBool(msg.ok)) showToast(asString(msg.message, "Session de code ouverte."));
+    else showToast(asString(msg.error, "Echec de l'ouverture."), false);
   });
 
   const offResult = ws.on("dash_cowork_result", (msg) => {
@@ -184,6 +208,7 @@ function mount(root: HTMLElement): Cleanup {
   return () => {
     offCowork();
     offResult();
+    offSession();
     offStatus();
   };
 }
