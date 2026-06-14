@@ -11,9 +11,15 @@ est PUR (parse la sortie de `claude plugin marketplace list`) et testable sans C
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
+
+# Windows : empeche l'ouverture d'une fenetre console quand Jarvis.exe (app sans
+# console) lance `claude` -> sinon un terminal "flashe" a chaque appel (ex: en
+# ouvrant l'onglet Skills). 0 ailleurs.
+_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 # Marketplaces de skills Claude Code recommandees (nom affiche, repo GitHub, desc).
 # "repo" est ce qu'on passe a `claude plugin marketplace add`.
@@ -63,7 +69,8 @@ def marketplaces_installes() -> set[str]:
     try:
         r = subprocess.run(
             [cli, "plugin", "marketplace", "list"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15, shell=False,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=15, shell=False, creationflags=_NO_WINDOW,
         )
     except Exception:  # noqa: BLE001
         return set()
@@ -88,7 +95,8 @@ def ajouter_marketplace(repo: str) -> tuple[bool, str]:
     try:
         r = subprocess.run(
             [cli, "plugin", "marketplace", "add", repo],
-            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120, shell=False,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=120, shell=False, creationflags=_NO_WINDOW,
         )
     except subprocess.TimeoutExpired:
         return False, "Delai depasse en ajoutant la marketplace."
