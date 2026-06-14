@@ -71,8 +71,24 @@ function mount(root: HTMLElement): Cleanup {
     "Session de code interactive",
     "Ouvre un terminal Claude Code (tous les outils) dans le dossier ci-dessus — comme la commande jcode."
   );
+  // Mode de permission Claude Code (--permission-mode).
+  const modeSelect = el("select", "input") as HTMLSelectElement;
+  for (const [val, txt] of [
+    ["default", "Demander les autorisations"],
+    ["plan", "Mode plan (propose un plan, n'execute pas)"],
+    ["acceptEdits", "Mode automatique (accepte les editions)"],
+    ["bypassPermissions", "Bypass (tout autoriser, prudence)"],
+  ]) {
+    const opt = document.createElement("option");
+    opt.value = val;
+    opt.textContent = txt;
+    modeSelect.appendChild(opt);
+  }
+  const sessionRow = el("div", "form-row");
+  sessionRow.appendChild(labeledField("Mode", modeSelect));
   const sessionBtn = button("Ouvrir une session de code", "primary");
-  sessionPanel.body.appendChild(sessionBtn);
+  sessionRow.appendChild(sessionBtn);
+  sessionPanel.body.appendChild(sessionRow);
   root.appendChild(sessionPanel.root);
 
   function majBoutonRun(): void {
@@ -170,7 +186,7 @@ function mount(root: HTMLElement): Cleanup {
   });
 
   sessionBtn.addEventListener("click", () => {
-    if (ws.send({ type: "dash_cowork_session" })) {
+    if (ws.send({ type: "dash_cowork_session", mode: modeSelect.value })) {
       showToast("Ouverture du terminal de code…");
     } else {
       showToast("Backend deconnecte.", false);

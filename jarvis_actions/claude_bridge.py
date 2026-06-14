@@ -78,13 +78,28 @@ def lancer_claude_code(
 # Indicateur Windows CreateProcess : ouvrir une NOUVELLE console pour le process.
 _CREATE_NEW_CONSOLE = 0x00000010
 
+# Modes de permission Claude Code (--permission-mode). Liste BLANCHE : on n'injecte
+# jamais une valeur arbitraire du client. "default" = comportement normal (demande).
+_PERMISSION_MODES = {"default", "plan", "acceptEdits", "bypassPermissions"}
 
-def ouvrir_session_terminal(cwd: str | None = None) -> tuple[str, bool]:
+
+def _args_mode(permission_mode: str) -> list[str]:
+    """Args `--permission-mode` valides (liste blanche), [] sinon ou si 'default'."""
+    if permission_mode in _PERMISSION_MODES and permission_mode != "default":
+        return ["--permission-mode", permission_mode]
+    return []
+
+
+def ouvrir_session_terminal(cwd: str | None = None,
+                            permission_mode: str = "default") -> tuple[str, bool]:
     """Ouvre une session Claude Code INTERACTIVE dans une nouvelle fenetre terminal.
 
     Contrairement a lancer_claude_code (one-shot `claude --print`), ouvre un vrai
     terminal ou l'utilisateur dialogue avec Claude Code (tous les outils) dans
     `cwd`. C'est l'equivalent in-app de la commande `jcode`.
+
+    `permission_mode` (liste blanche) : "default" (demande), "plan", "acceptEdits"
+    (automatique), "bypassPermissions". Passe a Claude Code via --permission-mode.
 
     Windows : nouvelle console (`cmd /k claude`). Autres OS : best-effort.
     """
@@ -92,27 +107,28 @@ def ouvrir_session_terminal(cwd: str | None = None) -> tuple[str, bool]:
     if not cli:
         return f"Claude Code n'est pas installe ou pas dans le PATH, {USER_NAME}.", False
     dossier = cwd if (cwd and os.path.isdir(cwd)) else None
+    mode_args = _args_mode(permission_mode)
     try:
         if os.name == "nt":
             # `cmd /k` garde la console ouverte apres le lancement de claude.
             subprocess.Popen(
-                ["cmd", "/k", cli],
+                ["cmd", "/k", cli, *mode_args],
                 cwd=dossier,
                 creationflags=_CREATE_NEW_CONSOLE,
                 shell=False,
             )
         elif shutil.which("x-terminal-emulator"):  # Linux best-effort
-            subprocess.Popen(["x-terminal-emulator", "-e", cli], cwd=dossier, shell=False)
+            subprocess.Popen(["x-terminal-emulator", "-e", cli, *mode_args], cwd=dossier, shell=False)
         elif shutil.which("osascript"):  # macOS best-effort
             cible = dossier or os.getcwd()
             # SECURITE : le chemin est passe en ARGV a osascript (aucune
             # interpolation dans le script) et echappe par `quoted form of`
-            # cote shell -> pas d'injection AppleScript ni shell, meme si le
-            # nom de dossier contient des guillemets ou des `&`.
+            # cote shell. mode_args vient d'une liste blanche -> sur.
+            suffixe = (" " + " ".join(mode_args)) if mode_args else ""
             script = (
                 'on run argv\n'
                 '  tell application "Terminal" to do script '
-                '("cd " & quoted form of (item 1 of argv) & " && claude")\n'
+                f'("cd " & quoted form of (item 1 of argv) & " && claude{suffixe}")\n'
                 'end run'
             )
             subprocess.Popen(["osascript", "-e", script, cible], shell=False)

@@ -74,3 +74,35 @@ def test_ouvrir_session_macos_chemin_en_argv_pas_interpole(monkeypatch, tmp_path
     script = args[2]
     assert cible not in script
     assert "quoted form of" in script
+
+
+# ============================================================
+# Modes de permission (--permission-mode)
+# ============================================================
+
+def test_args_mode_liste_blanche():
+    assert cb._args_mode("default") == []          # mode normal -> pas de flag
+    assert cb._args_mode("plan") == ["--permission-mode", "plan"]
+    assert cb._args_mode("bypassPermissions") == ["--permission-mode", "bypassPermissions"]
+    assert cb._args_mode("acceptEdits") == ["--permission-mode", "acceptEdits"]
+    assert cb._args_mode("rm -rf /") == []          # hors liste blanche -> ignore
+
+
+def test_ouvrir_session_passe_le_permission_mode(monkeypatch, tmp_path):
+    monkeypatch.setattr(cb.shutil, "which", lambda n: "C:/claude.exe" if n == "claude" else None)
+    monkeypatch.setattr(cb.os, "name", "nt")
+    appels = []
+    monkeypatch.setattr(cb.subprocess, "Popen", lambda args, **kw: appels.append((args, kw)))
+    cb.ouvrir_session_terminal(str(tmp_path), "plan")
+    args, _ = appels[0]
+    assert "--permission-mode" in args and "plan" in args
+
+
+def test_ouvrir_session_mode_invalide_ignore(monkeypatch, tmp_path):
+    monkeypatch.setattr(cb.shutil, "which", lambda n: "C:/claude.exe" if n == "claude" else None)
+    monkeypatch.setattr(cb.os, "name", "nt")
+    appels = []
+    monkeypatch.setattr(cb.subprocess, "Popen", lambda args, **kw: appels.append((args, kw)))
+    cb.ouvrir_session_terminal(str(tmp_path), "evil; rm -rf")
+    args, _ = appels[0]
+    assert "--permission-mode" not in args  # mode hors liste blanche -> pas injecte

@@ -1757,7 +1757,10 @@ async def _h_cowork_session(data: dict) -> dict:
     if not folder or not os.path.isdir(folder):
         return {"action": "dash_cowork_session_result", "ok": False,
                 "error": "Aucun dossier Cowork valide defini"}
-    msg, ok = await _en_executor(lambda: claude_bridge.ouvrir_session_terminal(folder))
+    mode = str(data.get("mode", "default") or "default")
+    msg, ok = await _en_executor(
+        lambda: claude_bridge.ouvrir_session_terminal(folder, mode)
+    )
     return {"action": "dash_cowork_session_result", "ok": bool(ok),
             "message": msg, "error": "" if ok else msg}
 
@@ -1784,11 +1787,15 @@ async def _h_fcc_start(data: dict) -> dict:
 
 
 async def _h_code_model(data: dict) -> dict:
-    """Modele local de code actif (pour l'en-tete du chat code)."""
+    """Modele de code actif + liste des modeles locaux (pour le selecteur)."""
     if code_chat is None:
-        return {"action": "dash_code_model", "model": ""}
-    model = await _en_executor(code_chat.modele_actif)
-    return {"action": "dash_code_model", "model": model}
+        return {"action": "dash_code_model", "model": "", "models": []}
+
+    def _infos():
+        return code_chat.modele_actif(), code_chat.modeles_installes()
+
+    model, models = await _en_executor(_infos)
+    return {"action": "dash_code_model", "model": model, "models": models}
 
 
 async def _h_code_chat(data: dict) -> dict:
@@ -1798,7 +1805,8 @@ async def _h_code_chat(data: dict) -> dict:
                 "text": "Module code_chat indisponible."}
     prompt = str(data.get("prompt", "") or "")
     historique = data.get("history") if isinstance(data.get("history"), list) else []
-    text, ok = await _en_executor(lambda: code_chat.repondre(prompt, historique))
+    modele = str(data.get("model", "") or "") or None
+    text, ok = await _en_executor(lambda: code_chat.repondre(prompt, historique, modele))
     return {"action": "dash_code_reply", "ok": bool(ok), "text": text}
 
 
