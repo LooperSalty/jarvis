@@ -1765,6 +1765,32 @@ async def _h_cowork_session(data: dict) -> dict:
             "message": msg, "error": "" if ok else msg}
 
 
+async def _h_cowork_chat(data: dict) -> dict:
+    """Un tour de chat AGENTIQUE Claude Code dans le dossier Cowork (modele local).
+
+    Resout le dossier (config Cowork, sinon dossier par defaut auto-cree), demarre
+    le proxy local si besoin, puis lance `claude --print` (--continue pour les
+    tours suivants) avec le modele/mode choisis."""
+    if claude_bridge is None:
+        return {"action": "dash_cowork_reply", "ok": False,
+                "text": "Module claude_bridge indisponible."}
+    prompt = str(data.get("prompt", "") or "")
+    if not prompt.strip():
+        return {"action": "dash_cowork_reply", "ok": False, "text": "Message vide."}
+    config = jarvis_ui_config.charger() if jarvis_ui_config is not None else {}
+    folder = str(config.get("cowork_folder", "") or "")
+    if not folder or not os.path.isdir(folder):
+        folder = await _en_executor(claude_bridge.dossier_cowork_defaut)
+    model = str(data.get("model", "") or "")
+    mode = str(data.get("mode", "default") or "default")
+    continuer = bool(data.get("continue", False))
+    via_proxy = bool(await _en_executor(free_code.assurer_demarre)) if free_code is not None else False
+    text, ok = await _en_executor(
+        lambda: claude_bridge.chat_claude_code(prompt, folder, model, mode, continuer, via_proxy)
+    )
+    return {"action": "dash_cowork_reply", "ok": bool(ok), "text": text, "folder": folder}
+
+
 # ==========================================
 # HANDLERS — CODE (free-claude-code / proxy fcc-server)
 # ==========================================
@@ -1887,6 +1913,7 @@ _HANDLERS = {
     "dash_set_cowork": _h_set_cowork,
     "dash_cowork_delegate": _h_cowork_delegate,
     "dash_cowork_session": _h_cowork_session,
+    "dash_cowork_chat": _h_cowork_chat,
 }
 
 

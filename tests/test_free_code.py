@@ -77,3 +77,18 @@ def test_statut_forme(monkeypatch):
     assert st["en_marche"] is False
     assert st["url_admin"].endswith("/admin")
     assert st["port"] == 8082
+
+
+def test_assurer_demarre_deja_en_marche(monkeypatch):
+    monkeypatch.setattr(fc, "en_marche", lambda *a, **k: True)
+    appels = []
+    monkeypatch.setattr(fc, "demarrer", lambda: appels.append(1) or (True, ""))
+    assert fc.assurer_demarre() is True
+    assert appels == []  # deja en marche -> ne relance pas
+
+
+def test_assurer_demarre_lance_si_absent(monkeypatch):
+    etats = iter([False, True])  # down puis up apres demarrage
+    monkeypatch.setattr(fc, "en_marche", lambda *a, **k: next(etats))
+    monkeypatch.setattr(fc, "demarrer", lambda: (True, "lance"))
+    assert fc.assurer_demarre(timeout=3) is True

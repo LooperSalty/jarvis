@@ -6,7 +6,16 @@ os.name pour valider la commande construite sans rien ouvrir.
 
 from __future__ import annotations
 
+import os
+
 from jarvis_actions import claude_bridge as cb
+
+
+class _FakeRun:
+    def __init__(self, returncode=0, stdout="", stderr=""):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
 
 
 def test_ouvrir_session_sans_claude(monkeypatch):
@@ -106,3 +115,57 @@ def test_ouvrir_session_mode_invalide_ignore(monkeypatch, tmp_path):
     cb.ouvrir_session_terminal(str(tmp_path), "evil; rm -rf")
     args, _ = appels[0]
     assert "--permission-mode" not in args  # mode hors liste blanche -> pas injecte
+
+
+# ============================================================
+# chat_claude_code (Cowork agentique) + dossier par defaut
+# ============================================================
+
+def test_chat_claude_code_sans_claude(monkeypatch):
+    monkeypatch.setattr(cb.shutil, "which", lambda _n: None)
+    txt, ok = cb.chat_claude_code("fais un truc")
+    assert ok is False
+    assert "claude" in txt.lower()
+
+
+def test_chat_claude_code_construit_les_args(monkeypatch, tmp_path):
+    captures = {}
+
+    def _run(args, **kw):
+        captures["args"] = args
+        captures["env"] = kw.get("env")
+        captures["cwd"] = kw.get("cwd")
+        return _FakeRun(returncode=0, stdout="Fait.")
+
+    monkeypatch.setattr(cb.shutil, "which", lambda n: "C:/claude.exe" if n == "claude" else None)
+    monkeypatch.setattr(cb.subprocess, "run", _run)
+
+    txt, ok = cb.chat_claude_code(
+        "ajoute un test", cwd=str(tmp_path), model="qwen2.5:7b",
+        permission_mode="acceptEdits", continuer=True, via_proxy=True,
+    )
+    assert ok is True and txt == "Fait."
+    args = captures["args"]
+    assert "--print" in args and "--continue" in args
+    assert "--model" in args and "qwen2.5:7b" in args
+    assert "--permission-mode" in args and "acceptEdits" in args
+    assert args[-1] == "ajoute un test"            # prompt en dernier (positionnel)
+    assert captures["cwd"] == str(tmp_path)
+    # via_proxy -> l'env pointe le proxy local
+    assert captures["env"]["ANTHROPIC_BASE_URL"] == cb._PROXY_URL
+
+
+def test_chat_claude_code_sans_proxy_pas_d_env_proxy(monkeypatch):
+    captures = {}
+    monkeypatch.setattr(cb.shutil, "which", lambda n: "C:/claude.exe" if n == "claude" else None)
+    monkeypatch.setattr(cb.subprocess, "run",
+                        lambda args, **kw: captures.update(env=kw.get("env")) or _FakeRun(0, "ok"))
+    cb.chat_claude_code("x", via_proxy=False)
+    assert "ANTHROPIC_BASE_URL" not in captures["env"]
+
+
+def test_dossier_cowork_defaut(monkeypatch, tmp_path):
+    monkeypatch.setattr(cb.Path, "home", classmethod(lambda cls: tmp_path))
+    d = cb.dossier_cowork_defaut()
+    assert d.endswith("JarvisCowork")
+    assert os.path.isdir(d)

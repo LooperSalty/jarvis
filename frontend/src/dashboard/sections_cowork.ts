@@ -1,13 +1,13 @@
 /**
- * Section "Cowork" (inspiree de Claude Cowork) :
- * - Definir un DOSSIER de travail precis (persiste dans jarvis_ui_config.json).
- * - Voir son etat : existence, statut git (branche / modifications), apercu.
- * - Confier une tache a Claude Code qui s'execute DANS ce dossier (claude_bridge).
+ * Section "Cowork" : un CHAT AGENTIQUE ou Claude Code travaille pour toi dans un
+ * dossier (specifique ou un dossier par defaut AUTO-CREE), avec choix du modele
+ * (local, gratuit via le proxy) et du mode de permission (plan/auto/bypass).
  *
- * Protocole WS :
- *   -> dash_cowork_status            <- dash_cowork {folder, exists, git, entries...}
- *   -> dash_set_cowork {folder}      <- dash_cowork
- *   -> dash_cowork_delegate {prompt} <- dash_cowork_result {ok, output|error}
+ * Chaque message -> dash_cowork_chat -> `claude --print` (--continue aux tours
+ * suivants) dans le dossier. Claude Code edite des fichiers / lance des commandes.
+ *
+ * WS : dash_cowork_status / dash_set_cowork (dossier) ; dash_code_model (modeles) ;
+ *   dash_cowork_chat {prompt, model, mode, continue} -> dash_cowork_reply {ok, text, folder}.
  */
 
 import * as ws from "./ws";
@@ -21,223 +21,237 @@ import {
   textInput,
   labeledField,
   showToast,
-  asRecord,
   asString,
-  asBool,
-  asNumber,
   asArray,
 } from "./sections";
 
 function mount(root: HTMLElement): Cleanup {
-  let claudeDispo = false;
-  let dossierValide = false;
+  let busy = false;
+  let started = false; // false = 1er message (nouvelle conv) ; true = --continue
+  let selectedModel = "";
 
-  // ── Panneau dossier de travail ──
-  const folderPanel = panel(
-    "Dossier de travail",
-    "Le dossier dans lequel Jarvis et Claude Code travailleront."
+  root.style.display = "flex";
+  root.style.flexDirection = "column";
+  root.style.height = "84vh";
+
+  // ── Barre dossier + options ──
+  const bar = panel(
+    "Cowork — Claude Code travaille pour toi",
+    "Un chat ou Claude Code AGIT dans un dossier : il edite des fichiers et lance des commandes."
   );
-  const statusEl = el("div", "cowork-status");
-  folderPanel.body.appendChild(statusEl);
+  const folderInfo = el("p", "panel-note", "Dossier : …");
+  bar.body.appendChild(folderInfo);
 
-  const folderInput = textInput("C:\\Users\\moi\\mon-projet", "");
-  const setBtn = button("Definir le dossier", "primary");
-  const clearBtn = button("Retirer", "danger");
+  const folderInput = textInput("C:\\chemin\\du\\projet (vide = dossier par defaut auto)", "");
+  const setFolderBtn = button("Definir", "ghost");
+  const defaultFolderBtn = button("Dossier par defaut (auto)", "ghost");
   const folderRow = el("div", "form-row");
-  folderRow.appendChild(labeledField("Chemin du dossier", folderInput));
-  folderRow.appendChild(setBtn);
-  folderRow.appendChild(clearBtn);
-  folderPanel.body.appendChild(folderRow);
-  root.appendChild(folderPanel.root);
+  folderRow.appendChild(labeledField("Dossier de travail", folderInput));
+  folderRow.appendChild(setFolderBtn);
+  folderRow.appendChild(defaultFolderBtn);
+  bar.body.appendChild(folderRow);
 
-  // ── Panneau delegation a Claude Code ──
-  const taskPanel = panel(
-    "Confier une tache a Claude Code",
-    "Claude Code s'execute dans le dossier ci-dessus et renvoie sa reponse."
-  );
-  const taskInput = el("textarea", "input cowork-task") as HTMLTextAreaElement;
-  taskInput.placeholder = "Decris la tache a realiser dans ce dossier...";
-  taskInput.rows = 3;
-  taskInput.spellcheck = false;
-  const runBtn = button("Confier a Claude Code", "primary");
-  taskPanel.body.appendChild(labeledField("Tache", taskInput));
-  taskPanel.body.appendChild(runBtn);
-  const resultEl = el("div", "cowork-result hidden");
-  taskPanel.body.appendChild(resultEl);
-  root.appendChild(taskPanel.root);
-
-  // ── Panneau session de code interactive (terminal) ──
-  const sessionPanel = panel(
-    "Session de code interactive",
-    "Ouvre un terminal Claude Code (tous les outils) dans le dossier ci-dessus — comme la commande jcode."
-  );
-  // Mode de permission Claude Code (--permission-mode).
+  const modelSelect = el("select", "input") as HTMLSelectElement;
+  modelSelect.addEventListener("change", () => {
+    selectedModel = modelSelect.value;
+  });
   const modeSelect = el("select", "input") as HTMLSelectElement;
-  for (const [val, txt] of [
+  for (const [v, t] of [
     ["default", "Demander les autorisations"],
-    ["plan", "Mode plan (propose un plan, n'execute pas)"],
-    ["acceptEdits", "Mode automatique (accepte les editions)"],
+    ["plan", "Plan (propose, n'execute pas)"],
+    ["acceptEdits", "Automatique (accepte les editions)"],
     ["bypassPermissions", "Bypass (tout autoriser, prudence)"],
   ]) {
-    const opt = document.createElement("option");
-    opt.value = val;
-    opt.textContent = txt;
-    modeSelect.appendChild(opt);
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = t;
+    modeSelect.appendChild(o);
   }
-  const sessionRow = el("div", "form-row");
-  sessionRow.appendChild(labeledField("Mode", modeSelect));
-  const sessionBtn = button("Ouvrir une session de code", "primary");
-  sessionRow.appendChild(sessionBtn);
-  sessionPanel.body.appendChild(sessionRow);
-  root.appendChild(sessionPanel.root);
+  const optRow = el("div", "form-row");
+  optRow.appendChild(labeledField("Modele (local)", modelSelect));
+  optRow.appendChild(labeledField("Mode", modeSelect));
+  bar.body.appendChild(optRow);
+  root.appendChild(bar.root);
 
-  function majBoutonRun(): void {
-    const pret = claudeDispo && dossierValide;
-    runBtn.disabled = !pret;
-    sessionBtn.disabled = !pret;
-  }
+  // ── Messages ──
+  const msgs = el("div", "");
+  msgs.style.flex = "1";
+  msgs.style.overflowY = "auto";
+  msgs.style.padding = "8px";
+  msgs.style.borderRadius = "12px";
+  msgs.style.background = "rgba(255,255,255,0.03)";
+  msgs.style.margin = "10px 0";
+  root.appendChild(msgs);
+  const intro = el(
+    "p",
+    "panel-note",
+    "Decris une tache : Claude Code la realise dans le dossier (fichiers, commandes), via un modele local gratuit. « Nouvelle conversation » repart de zero."
+  );
+  msgs.appendChild(intro);
 
-  function renderStatus(msg: ws.WsMessage): void {
-    const folder = asString(msg.folder);
-    const exists = asBool(msg.exists);
-    claudeDispo = asBool(msg.claude_dispo);
-    dossierValide = exists;
+  // ── Saisie ──
+  const inputRow = el("div", "");
+  inputRow.style.display = "flex";
+  inputRow.style.alignItems = "flex-end";
+  const ta = el("textarea", "input") as HTMLTextAreaElement;
+  ta.placeholder = "Decris la tache a realiser dans le dossier (Entree = envoyer)…";
+  ta.rows = 2;
+  ta.spellcheck = false;
+  ta.style.flex = "1";
+  ta.style.resize = "vertical";
+  const newBtn = button("Nouvelle conversation", "ghost");
+  newBtn.style.marginLeft = "8px";
+  const sendBtn = button("Envoyer", "primary");
+  sendBtn.style.marginLeft = "8px";
+  inputRow.appendChild(ta);
+  inputRow.appendChild(newBtn);
+  inputRow.appendChild(sendBtn);
+  root.appendChild(inputRow);
 
-    clearChildren(statusEl);
-    if (!folder) {
-      statusEl.appendChild(el("p", "panel-note", "Aucun dossier defini pour l'instant."));
+  function bulle(role: "user" | "assistant", contenu: string): HTMLElement {
+    const b = el("div", "");
+    b.style.margin = "8px 0";
+    b.style.padding = "10px 12px";
+    b.style.borderRadius = "10px";
+    b.style.whiteSpace = "pre-wrap";
+    b.style.wordBreak = "break-word";
+    if (role === "user") {
+      b.style.background = "rgba(120,140,255,0.15)";
+      b.style.marginLeft = "12%";
     } else {
-      statusEl.appendChild(el("code", "cowork-path", folder));
-      if (!exists) {
-        statusEl.appendChild(el("p", "empty err", "Dossier introuvable."));
-      } else {
-        const meta = el("div", "cowork-meta");
-        const git = asRecord(msg.git);
-        if (asBool(git.is_repo)) {
-          const dirty = asNumber(git.dirty);
-          meta.appendChild(
-            el(
-              "span",
-              "cowork-chip",
-              `git: ${asString(git.branch, "?")}${dirty ? ` · ${dirty} modif.` : " · propre"}`
-            )
-          );
-        }
-        meta.appendChild(el("span", "cowork-chip", `${asNumber(msg.file_count)} elements`));
-        statusEl.appendChild(meta);
-
-        const entries = asArray(msg.entries);
-        if (entries.length) {
-          const list = el("div", "cowork-files");
-          for (const brut of entries) {
-            const e = asRecord(brut);
-            const item = el("span", "cowork-file");
-            item.appendChild(el("span", "cowork-file-ico", asBool(e.dir) ? "📁" : "📄"));
-            item.appendChild(el("span", "", asString(e.name)));
-            list.appendChild(item);
-          }
-          statusEl.appendChild(list);
-        }
-      }
+      b.style.background = "rgba(255,255,255,0.05)";
+      b.style.marginRight = "8%";
+      b.style.fontFamily = "ui-monospace, Menlo, Consolas, monospace";
+      b.style.fontSize = "13px";
     }
-    if (!claudeDispo) {
-      statusEl.appendChild(
-        el(
-          "p",
-          "panel-note",
-          "Claude Code (commande 'claude') introuvable dans le PATH : la delegation est indisponible."
-        )
-      );
-    }
-    folderInput.value = folder;
-    majBoutonRun();
+    b.textContent = contenu;
+    msgs.appendChild(b);
+    msgs.scrollTop = msgs.scrollHeight;
+    return b;
   }
 
-  setBtn.addEventListener("click", () => {
-    const f = folderInput.value.trim();
-    if (!ws.send({ type: "dash_set_cowork", folder: f })) {
-      showToast("Backend deconnecte.", false);
-    }
-  });
-
-  clearBtn.addEventListener("click", () => {
-    folderInput.value = "";
-    if (!ws.send({ type: "dash_set_cowork", folder: "" })) {
-      showToast("Backend deconnecte.", false);
-    }
-  });
-
-  runBtn.addEventListener("click", () => {
-    const tache = taskInput.value.trim();
-    if (!tache) {
-      showToast("Decris d'abord la tache.", false);
-      return;
-    }
-    resultEl.classList.remove("hidden");
-    clearChildren(resultEl);
-    resultEl.appendChild(
-      el("p", "panel-note", "Claude Code travaille dans le dossier… (cela peut prendre un moment)")
-    );
-    runBtn.disabled = true;
-    if (!ws.send({ type: "dash_cowork_delegate", prompt: tache })) {
-      showToast("Backend deconnecte.", false);
-      majBoutonRun();
-    }
-  });
-
-  sessionBtn.addEventListener("click", () => {
+  function envoyer(): void {
+    const prompt = ta.value.trim();
+    if (!prompt || busy) return;
     const mode = modeSelect.value;
-    // Garde-fou : le mode Bypass execute TOUT sans demander -> confirmation.
     if (
       mode === "bypassPermissions" &&
       !window.confirm(
-        "Mode Bypass : Claude Code executera toutes les actions (fichiers, " +
-          "commandes) SANS te demander, dans le dossier Cowork. A n'utiliser que " +
-          "dans un dossier de confiance. Continuer ?"
+        "Mode Bypass : Claude Code executera toutes les actions sans te demander, " +
+          "dans le dossier Cowork. Continuer ?"
       )
     ) {
       return;
     }
-    if (ws.send({ type: "dash_cowork_session", mode })) {
-      showToast("Ouverture du terminal de code…");
+    bulle("user", prompt);
+    ta.value = "";
+    busy = true;
+    sendBtn.disabled = true;
+    sendBtn.textContent = "…";
+    const pend = bulle("assistant", "… Claude Code travaille dans le dossier (cela peut prendre un moment)…");
+    pend.dataset.pending = "1";
+    const ok = ws.send({ type: "dash_cowork_chat", prompt, model: selectedModel, mode, continue: started });
+    if (ok) {
+      started = true;
     } else {
+      pend.textContent = "Backend deconnecte.";
+      delete pend.dataset.pending;
+      busy = false;
+      sendBtn.disabled = false;
+      sendBtn.textContent = "Envoyer";
+    }
+  }
+
+  sendBtn.addEventListener("click", envoyer);
+  ta.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      envoyer();
+    }
+  });
+  newBtn.addEventListener("click", () => {
+    started = false;
+    clearChildren(msgs);
+    msgs.appendChild(intro);
+    showToast("Nouvelle conversation.");
+  });
+  setFolderBtn.addEventListener("click", () => {
+    if (!ws.send({ type: "dash_set_cowork", folder: folderInput.value.trim() })) {
       showToast("Backend deconnecte.", false);
+    }
+  });
+  defaultFolderBtn.addEventListener("click", () => {
+    folderInput.value = "";
+    if (ws.send({ type: "dash_set_cowork", folder: "" })) {
+      showToast("Dossier par defaut (auto-cree) au prochain message.");
     }
   });
 
   // ── Abonnements WS ──
-  const offCowork = ws.on("dash_cowork", (msg) => {
-    if (asString(msg.error)) showToast(asString(msg.error), false);
-    renderStatus(msg);
+  const offReply = ws.on("dash_cowork_reply", (msg) => {
+    const texte = asString(msg.text, "(reponse vide)");
+    const pend = msgs.querySelector('[data-pending="1"]') as HTMLElement | null;
+    if (pend) {
+      delete pend.dataset.pending;
+      pend.textContent = texte;
+    } else {
+      bulle("assistant", texte);
+    }
+    const f = asString(msg.folder);
+    if (f) folderInfo.textContent = `Dossier : ${f}`;
+    busy = false;
+    sendBtn.disabled = false;
+    sendBtn.textContent = "Envoyer";
+    msgs.scrollTop = msgs.scrollHeight;
   });
-
-  const offSession = ws.on("dash_cowork_session_result", (msg) => {
-    if (asBool(msg.ok)) showToast(asString(msg.message, "Session de code ouverte."));
-    else showToast(asString(msg.error, "Echec de l'ouverture."), false);
+  const offStatus = ws.on("dash_cowork", (msg) => {
+    const f = asString(msg.folder);
+    if (f) {
+      folderInfo.textContent = `Dossier : ${f}`;
+      folderInput.value = f;
+    } else {
+      folderInfo.textContent = "Dossier : par defaut (auto-cree au 1er message)";
+    }
   });
-
-  const offResult = ws.on("dash_cowork_result", (msg) => {
-    majBoutonRun();
-    clearChildren(resultEl);
-    resultEl.classList.remove("hidden");
-    if (!asBool(msg.ok)) {
-      resultEl.appendChild(el("p", "empty err", asString(msg.error, "Echec de la delegation.")));
+  const offModel = ws.on("dash_code_model", (msg) => {
+    const actif = asString(msg.model);
+    let modeles = asArray(msg.models).map((x) => asString(x)).filter(Boolean);
+    if (!modeles.length && actif) modeles = [actif];
+    clearChildren(modelSelect);
+    if (!modeles.length) {
+      const o = document.createElement("option");
+      o.value = "";
+      o.textContent = "(defaut)";
+      modelSelect.appendChild(o);
+      selectedModel = "";
       return;
     }
-    resultEl.appendChild(el("div", "cowork-output", asString(msg.output, "(reponse vide)")));
+    for (const nom of modeles) {
+      const o = document.createElement("option");
+      o.value = nom;
+      o.textContent = nom;
+      modelSelect.appendChild(o);
+    }
+    selectedModel = modeles.includes(actif) ? actif : modeles[0];
+    modelSelect.value = selectedModel;
+  });
+  const offConn = ws.onStatus((ok) => {
+    if (ok) {
+      ws.send({ type: "dash_cowork_status" });
+      ws.send({ type: "dash_code_model" });
+    }
   });
 
-  const offStatus = ws.onStatus((ok) => {
-    if (ok) ws.send({ type: "dash_cowork_status" });
-  });
-
-  if (ws.isConnected()) ws.send({ type: "dash_cowork_status" });
+  if (ws.isConnected()) {
+    ws.send({ type: "dash_cowork_status" });
+    ws.send({ type: "dash_code_model" });
+  }
 
   return () => {
-    offCowork();
-    offResult();
-    offSession();
+    offReply();
     offStatus();
+    offModel();
+    offConn();
   };
 }
 
