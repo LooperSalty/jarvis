@@ -871,14 +871,26 @@ async def _h_set_user_name(data: dict) -> dict:
 # Ces handlers ne sont appeles que depuis un client loopback (gate cote main2),
 # le token complet peut donc etre renvoye en clair : il sert a appairer le mobile.
 def _payload_appairage(token: str) -> dict:
-    """Construit le payload dash_pairing (token complet + URL d'appairage LAN)."""
+    """Construit le payload dash_pairing (token complet + URL d'appairage LAN,
+    + URL Tailscale pour le controle a distance si un tailnet est detecte)."""
     ip = _lan_ip()
-    return {
+    payload = {
         "action": "dash_pairing",
         "token": token,
         "lan_ip": ip,
         "lan_url": f"http://{ip}:8080/?token={token}",
     }
+    # Acces distant via Tailscale (depuis n'importe ou, pas seulement le LAN).
+    # Degrade en silence si le module/tailnet est absent.
+    try:
+        from jarvis_actions import tailscale_net
+        ts = tailscale_net.statut(token)
+        if ts.get("actif"):
+            payload["tailscale_ip"] = ts["ip"]
+            payload["tailscale_url"] = ts["url_mobile"]
+    except Exception as e:  # noqa: BLE001
+        print(f"[DASHBOARD] Detection Tailscale ignoree : {e}")
+    return payload
 
 
 async def _h_get_pairing(data: dict) -> dict:

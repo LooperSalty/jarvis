@@ -197,6 +197,8 @@ Pas de tsconfig (le build skip `tsc`), mais `frontend/vite.config.ts` existe (mu
 
 HTML statique + `app.js`. Utilise **Web Speech API** native du navigateur pour STT et TTS (pas d'edge-tts ni de pygame côté mobile). WebSocket dynamique : `ws://${window.location.hostname}:8765` pour fonctionner sur LAN. Quand le mobile envoie `mobile_command`, le backend met `_skip_pc_audio=True` pour ne pas dupliquer l'audio.
 
+**Accès distant via Tailscale** (`jarvis_actions/tailscale_net.py`) : le panneau « Appairage mobile » du dashboard (`_payload_appairage`) affiche, en plus du lien LAN, un **lien Tailscale** (`http://<ip-tailnet>:8080/?token=…`) dès qu'une IP du tailnet (plage CGNAT `100.64.0.0/10`) est détectée — via la CLI `tailscale ip -4` puis repli sur le scan des interfaces (`psutil`). Permet de piloter Jarvis depuis le téléphone **de n'importe où** (tél + PC sur le même compte Tailscale), pas seulement sur le Wi-Fi local. Détection en dégradation propre (rien si Tailscale absent + guide d'install affiché). `_ip_dans_plage_tailscale` est pur et testé.
+
 ## Configuration
 
 `.env` (lu par `python-dotenv`) :
