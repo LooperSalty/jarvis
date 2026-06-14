@@ -132,6 +132,12 @@ function mountSection(id: string): void {
   const isSettings = settingsIds.has(section.id);
 
   clearChildren(sectionRoot);
+  // Reinitialise les styles inline laisses par la section precedente : Code et
+  // Cowork posent display:flex + height:82vh/84vh sur sectionRoot. Sans ce reset,
+  // les sections suivantes (ex: Vue d'ensemble) heritent d'une hauteur fixe et
+  // leurs panneaux (overflow:hidden) sont ecrases/coupes. La section reapplique
+  // ses propres styles dans son mount() si besoin.
+  sectionRoot.style.cssText = "";
   contentTitle.textContent = section.label;
 
   // Sidebar : bouton principal actif, ou bouton "Parametres" si section de reglage.
