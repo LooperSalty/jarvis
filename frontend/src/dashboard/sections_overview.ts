@@ -195,7 +195,7 @@ function mount(root: HTMLElement): Cleanup {
   // ── Panneau appairage mobile ──
   const pairing = panel(
     "Appairage mobile",
-    "Connecte ton telephone (meme reseau Wi-Fi) en toute securite."
+    "Connecte ton telephone : meme reseau Wi-Fi (LAN), ou de partout via Tailscale."
   );
   const showPairingBtn = button("Afficher le lien d'appairage", "primary");
   const regenPairingBtn = button("Regenerer", "danger");
@@ -256,6 +256,44 @@ function mount(root: HTMLElement): Cleanup {
     if (lanIp) {
       pairingResult.appendChild(
         el("p", "pairing-ip", `IP du PC sur le reseau : ${lanIp}`)
+      );
+    }
+
+    // ── Acces distant via Tailscale (depuis n'importe ou, pas que le Wi-Fi) ──
+    const tsUrl = asString(msg.tailscale_url);
+    const tsIp = asString(msg.tailscale_ip);
+    if (tsUrl) {
+      pairingResult.appendChild(
+        el(
+          "p",
+          "pairing-hint",
+          "Ou depuis n'importe ou via Tailscale (tel + PC sur le meme tailnet) :"
+        )
+      );
+      const tsRow = el("div", "form-row");
+      const tsLink = el("a", "pairing-link", tsUrl);
+      tsLink.href = tsUrl;
+      tsLink.target = "_blank";
+      tsLink.rel = "noopener noreferrer";
+      tsRow.appendChild(tsLink);
+      const copyTsBtn = button("Copier le lien Tailscale", "ghost");
+      copyTsBtn.addEventListener("click", () => {
+        copierPressePapier(tsUrl, "Lien Tailscale copie.");
+      });
+      tsRow.appendChild(copyTsBtn);
+      pairingResult.appendChild(tsRow);
+      if (tsIp) {
+        pairingResult.appendChild(
+          el("p", "pairing-ip", `IP Tailscale du PC : ${tsIp}`)
+        );
+      }
+    } else {
+      pairingResult.appendChild(
+        el(
+          "p",
+          "pairing-ip",
+          "Pour piloter Jarvis hors du Wi-Fi : installe Tailscale (tailscale.com) sur le PC ET le telephone (meme compte). Le lien Tailscale apparaitra ici automatiquement."
+        )
       );
     }
 
