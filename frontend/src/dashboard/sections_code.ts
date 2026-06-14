@@ -18,6 +18,7 @@ import {
   button,
   asString,
   asBool,
+  asArray,
 } from "./sections";
 
 interface Tour {
@@ -28,24 +29,31 @@ interface Tour {
 function mount(root: HTMLElement): Cleanup {
   const history: Tour[] = [];
   let busy = false;
+  let selectedModel = "";
 
   root.style.display = "flex";
   root.style.flexDirection = "column";
   root.style.height = "82vh";
 
-  // ── En-tete (titre + modele local + effacer) ──
+  // ── En-tete (titre + selecteur de modele local + effacer) ──
   const header = el("div", "");
   header.style.display = "flex";
   header.style.alignItems = "center";
   header.style.marginBottom = "8px";
   const title = el("strong", "", "Assistant code");
-  const badge = el("span", "panel-note", "modele local…");
-  badge.style.marginLeft = "10px";
+  const lblModele = el("span", "panel-note", "modele local :");
+  lblModele.style.margin = "0 8px";
+  const modelSelect = el("select", "input") as HTMLSelectElement;
+  modelSelect.style.maxWidth = "230px";
+  modelSelect.addEventListener("change", () => {
+    selectedModel = modelSelect.value;
+  });
   const spacer = el("span", "");
   spacer.style.flex = "1";
   const clearBtn = button("Effacer", "ghost");
   header.appendChild(title);
-  header.appendChild(badge);
+  header.appendChild(lblModele);
+  header.appendChild(modelSelect);
   header.appendChild(spacer);
   header.appendChild(clearBtn);
   root.appendChild(header);
@@ -115,7 +123,7 @@ function mount(root: HTMLElement): Cleanup {
     sendBtn.textContent = "…";
     const pending = bulle("assistant", "… le modele local reflechit (le 1er appel charge le modele, ~30s)…");
     pending.dataset.pending = "1";
-    const ok = ws.send({ type: "dash_code_chat", prompt, history: history.slice() });
+    const ok = ws.send({ type: "dash_code_chat", prompt, history: history.slice(), model: selectedModel });
     history.push({ role: "user", content: prompt });
     if (!ok) {
       pending.textContent = "Backend deconnecte.";
@@ -156,8 +164,30 @@ function mount(root: HTMLElement): Cleanup {
   });
 
   const offModel = ws.on("dash_code_model", (msg) => {
-    const m = asString(msg.model);
-    badge.textContent = m ? `modele local : ${m}` : "aucun modele local detecte (lance Ollama)";
+    const actif = asString(msg.model);
+    let modeles = asArray(msg.models).map((x) => asString(x)).filter(Boolean);
+    if (!modeles.length && actif) modeles = [actif];
+    const choix = selectedModel || actif;
+    clearChildren(modelSelect);
+    if (!modeles.length) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "aucun (lance Ollama)";
+      modelSelect.appendChild(opt);
+      selectedModel = "";
+      return;
+    }
+    for (const nom of modeles) {
+      const opt = document.createElement("option");
+      opt.value = nom;
+      opt.textContent = nom;
+      modelSelect.appendChild(opt);
+    }
+    let valeur = modeles[0];
+    if (modeles.includes(choix)) valeur = choix;
+    else if (modeles.includes(actif)) valeur = actif;
+    modelSelect.value = valeur;
+    selectedModel = valeur;
   });
 
   const offConn = ws.onStatus((connecte) => {
