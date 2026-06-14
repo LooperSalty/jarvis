@@ -68,11 +68,15 @@ def main():
             cwd=str(ROOT), env=env,
         )
 
+    # Shell externe (ex. fenetre Tauri) : on sert le frontend mais on n'ouvre PAS
+    # de navigateur — c'est le shell qui affiche http://localhost:5173.
+    external_shell = os.getenv("JARVIS_EXTERNAL_SHELL", "0") == "1"
     if _wait_for_port(5173):
-        _log(f"Frontend pret. Ouverture {JARVIS_URL}")
+        _log(f"Frontend pret. {'Shell externe (pas de navigateur).' if external_shell else f'Ouverture {JARVIS_URL}'}")
     else:
-        _log("Frontend pas pret apres 30s, ouverture quand meme.")
-    webbrowser.open(JARVIS_URL)
+        _log("Frontend pas pret apres 30s.")
+    if not external_shell:
+        webbrowser.open(JARVIS_URL)
 
     # Garde le process vivant
     try:
