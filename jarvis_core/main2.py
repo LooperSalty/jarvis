@@ -1103,6 +1103,28 @@ def _contexte_temporel() -> str:
     )
 
 
+def _reponse_date_heure(txt: str) -> str | None:
+    """Reponse DETERMINISTE aux questions de date/heure. None sinon.
+
+    Les LLM halucinent (ex: '15 mai 2024') ou esquivent ('pas d'acces temps reel')
+    ces questions : on y repond donc nous-memes, sans passer par le modele."""
+    t = (txt or "").lower()
+    veut_heure = bool(re.search(r"quelle heure|heure est[- ]il|\bl'heure\b|il est quelle heure", t))
+    veut_date = bool(re.search(
+        r"quel jour|quelle date|quelle est la date|on est quel|le combien|"
+        r"jour sommes[- ]nous|date d['e ]?aujourd|date du jour|date d'auj|date aujourd|"
+        r"quel jour on est|quel jour sommes|c'est quel jour|aujourd.{0,8}quel jour", t))
+    if not (veut_heure or veut_date):
+        return None
+    n = datetime.now()
+    if veut_date:
+        rep = f"Nous sommes le {_JOURS_FR[n.weekday()]} {n.day} {_MOIS_FR[n.month - 1]} {n.year}"
+        if veut_heure:
+            rep += f", et il est {n.strftime('%H:%M')}"
+        return rep + f", {USER_NAME}."
+    return f"Il est {n.strftime('%H:%M')}, {USER_NAME}."
+
+
 def construire_system_prompt(query: str | None = None):
     # `query` = texte utilisateur courant, transmis pour la recherche RAG ciblee.
     # Defaut None -> comportement historique (toute la memoire).
@@ -3182,6 +3204,12 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=T
     # INTERCEPTIONS PRIORITAIRES (avant tout le reste)
     # ============================================================
     txt_l = texte_utilisateur.lower().strip()
+
+    # 0) Date / heure -> reponse DETERMINISTE (le LLM halucine ou esquive la date)
+    _dh = _reponse_date_heure(txt_l)
+    if _dh:
+        await _parler_et_restaurer(_dh)
+        return
 
     # 1) "stop la musique / video" -> PLAY/PAUSE media key globale (pas de focus requis)
     if re.search(r"\b(stop|arr[êe]te|coupe|pause)\b.*\b(musique|vid[ée]o|playlist|chanson|son|lecture)\b", txt_l):
