@@ -1627,7 +1627,7 @@ async def _h_set_ui(data: dict) -> dict:
         }
     apparence = {
         k: updates[k]
-        for k in ("theme", "accent", "orb_style", "orb_color", "orb_shape")
+        for k in ("mode", "theme", "accent", "orb_style", "orb_color", "orb_shape")
         if k in updates
     }
     config = jarvis_ui_config.sauvegarder(apparence)

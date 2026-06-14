@@ -31,6 +31,17 @@ fn backend_pret() -> bool {
     std::net::TcpStream::connect("127.0.0.1:5173").is_ok()
 }
 
+// Masque la fenetre console du sous-process backend (sinon un terminal "flashe"
+// / reste visible quand l'app GUI lance python ou JarvisWeb.exe). Windows only.
+#[cfg(windows)]
+fn masquer_console(cmd: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+}
+#[cfg(not(windows))]
+fn masquer_console(_cmd: &mut Command) {}
+
 fn lancer_backend() -> Option<Child> {
     // 1) Distribution : JarvisWeb.exe a cote de l'exe Tauri. Il sert frontend/dist/
     //    sur :5173 + WS :8765 sans ouvrir de navigateur (JARVIS_EXTERNAL_SHELL=1),
@@ -39,22 +50,21 @@ fn lancer_backend() -> Option<Child> {
         if let Some(dir) = exe.parent() {
             let jarvis_web = dir.join("JarvisWeb.exe");
             if jarvis_web.exists() {
-                return Command::new(&jarvis_web)
-                    .current_dir(dir)
-                    .env("JARVIS_EXTERNAL_SHELL", "1")
-                    .spawn()
-                    .ok();
+                let mut cmd = Command::new(&jarvis_web);
+                cmd.current_dir(dir).env("JARVIS_EXTERNAL_SHELL", "1");
+                masquer_console(&mut cmd);
+                return cmd.spawn().ok();
             }
         }
     }
     // 2) Dev : python main2.py depuis le depot (sert dist/ sur :5173, pas de
-    //    navigateur ni de fenetre PyQt ; garde voix/IA/actions).
-    Command::new("python")
-        .arg(format!(r"{JARVIS_REPO}\jarvis_core\main2.py"))
+    //    navigateur ni de fenetre PyQt ; garde voix/IA/actions). Console masquee.
+    let mut cmd = Command::new("python");
+    cmd.arg(format!(r"{JARVIS_REPO}\jarvis_core\main2.py"))
         .current_dir(JARVIS_REPO)
-        .env("JARVIS_NO_BROWSER", "1")
-        .spawn()
-        .ok()
+        .env("JARVIS_NO_BROWSER", "1");
+    masquer_console(&mut cmd);
+    cmd.spawn().ok()
 }
 
 // Tue le backend Python s'il a ete lance par ce shell.

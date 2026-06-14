@@ -40,3 +40,17 @@ def test_sauvegarder_conserve_le_mode(tmp_path, monkeypatch):
     assert res["mode"] == "sombre"
     # Relecture depuis le disque : la valeur persiste.
     assert u.charger()["mode"] == "sombre"
+
+
+def test_h_set_ui_conserve_le_mode(tmp_path, monkeypatch):
+    """Regression : _h_set_ui filtrait les champs et JETAIT 'mode' (le theme
+    revenait toujours en clair). Le handler doit desormais le conserver."""
+    import asyncio
+    import jarvis_dashboard_api as api
+
+    cible = tmp_path / "jarvis_ui_config.json"
+    monkeypatch.setattr(u, "CONFIG_PATH", cible)
+
+    res = asyncio.run(api._h_set_ui({"updates": {"mode": "sombre"}}))
+    assert res["config"]["mode"] == "sombre"
+    assert u.charger()["mode"] == "sombre"
