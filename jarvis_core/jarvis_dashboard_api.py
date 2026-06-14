@@ -127,6 +127,12 @@ except Exception as e:
     print(f"[DASHBOARD] Module free_code indisponible : {e}")
 
 try:
+    from jarvis_actions import code_chat
+except Exception as e:
+    code_chat = None
+    print(f"[DASHBOARD] Module code_chat indisponible : {e}")
+
+try:
     from jarvis_actions import memory_sync
 except Exception as e:
     memory_sync = None
@@ -1777,6 +1783,25 @@ async def _h_fcc_start(data: dict) -> dict:
     return {"action": "dash_fcc_started", "ok": bool(ok), "message": message}
 
 
+async def _h_code_model(data: dict) -> dict:
+    """Modele local de code actif (pour l'en-tete du chat code)."""
+    if code_chat is None:
+        return {"action": "dash_code_model", "model": ""}
+    model = await _en_executor(code_chat.modele_actif)
+    return {"action": "dash_code_model", "model": model}
+
+
+async def _h_code_chat(data: dict) -> dict:
+    """Une question de code -> reponse d'un modele LOCAL (Ollama)."""
+    if code_chat is None:
+        return {"action": "dash_code_reply", "ok": False,
+                "text": "Module code_chat indisponible."}
+    prompt = str(data.get("prompt", "") or "")
+    historique = data.get("history") if isinstance(data.get("history"), list) else []
+    text, ok = await _en_executor(lambda: code_chat.repondre(prompt, historique))
+    return {"action": "dash_code_reply", "ok": bool(ok), "text": text}
+
+
 # ==========================================
 # HANDLERS — SKILLS CLAUDE CODE (Cowork)
 # ==========================================
@@ -1839,6 +1864,8 @@ _HANDLERS = {
     "dash_cc_skill_add": _h_cc_skill_add,
     "dash_fcc_status": _h_fcc_status,
     "dash_fcc_start": _h_fcc_start,
+    "dash_code_model": _h_code_model,
+    "dash_code_chat": _h_code_chat,
     "dash_routines_list": _h_routines_list,
     "dash_routine_save": _h_routine_save,
     "dash_routine_delete": _h_routine_delete,

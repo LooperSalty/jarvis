@@ -22,6 +22,7 @@ import { sectionModel } from "./sections_model";
 import { sectionPersonnalisation } from "./sections_personnalisation";
 import { sectionCowork } from "./sections_cowork";
 import { sectionCode } from "./sections_code";
+import { sectionCodeConfig } from "./sections_code_config";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -178,6 +179,7 @@ export const SECTIONS: readonly Section[] = [
   sectionAutomation,
   sectionConnectors,
   sectionCcSkills,
+  sectionCodeConfig,
   sectionModel,
   sectionPersonnalisation,
   sectionCowork,
