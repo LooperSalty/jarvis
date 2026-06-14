@@ -49,17 +49,30 @@ cargo update -p alloc-stdlib --precise 0.2.2
 Tout l'arbre utilise alors `alloc-no-stdlib` 2.0.4 et brotli compile. Garder ce pin
 dans le `Cargo.lock` (ne pas faire `cargo update` global sans revérifier brotli).
 
-## État : FONDATION (preuve de concept)
+## État
 
-Fait : scaffold, config fenêtre, sidecar Python, kill propre, build qui passe.
-Reste (migration complète, non fait) :
-- **System tray** + mini-fenêtre orbe (équivalent `jarvis_desktop.py`).
-- **Bundler un sidecar Python** pour la distribution (aujourd'hui le chemin du dépôt
-  est en dur dans `lib.rs` : OK en dev, pas pour un installeur).
-- **Pipeline de build/release** (compléter PyInstaller pour le shell).
+**Fait :**
+- Scaffold + config fenêtre + build qui passe (cf. pin brotli ci-dessus).
+- **System tray** (`lib.rs`) : menu *Ouvrir Jarvis / Configuration (dashboard) /
+  Quitter*, clic gauche = bascule la fenêtre, **fermer la fenêtre = masquer**
+  (l'app reste en tray, backend vivant) — équivalent `jarvis_desktop.py`.
+- **Backend portable** : `lancer_backend()` lance `JarvisWeb.exe` s'il est à côté de
+  l'exe Tauri (distribution, avec `JARVIS_EXTERNAL_SHELL=1` pour ne pas ouvrir de
+  navigateur) ; sinon repli dev sur `python jarvis_core/main2.py`. Le backend est
+  tué quand on quitte vraiment (menu Quitter / `RunEvent::Exit`).
+- **Build orchestré** : `build_all.bat` étape [5/5] compile `cargo build --release`
+  et copie `JarvisTauri.exe` à la racine (à côté de `JarvisWeb.exe`). Ignoré si
+  Rust/cargo absent.
 
-> Note honnête (cf. discussion) : le gain de Tauri est marginal (WebView moderne,
-> déjà contournée côté CSS) pour un coût élevé — comme le montre la galère de
-> toolchain ci-dessus. Alternative bien moins chère si on veut juste virer
-> Chromium 83 : passer le shell à **pywebview + WebView2** (100 % Python, zéro
-> toolchain Rust).
+**Reste :**
+- **Installeur** (`installer/JarvisSetup.iss`) : ajouter `JarvisTauri.exe` aux
+  fichiers + un raccourci, à côté de `JarvisWeb.exe`/`_internal_web`. Pipeline
+  `release.yml` : ajouter une étape Rust + `cargo build --release` (non câblé pour
+  ne pas risquer la release AV-réglée).
+- **Mini-orbe flottante** (l'état `idle` qui réduit la fenêtre) : non porté ; le tray
+  suffit pour l'usage courant.
+
+> Note honnête (cf. discussion) : le gain de Tauri reste marginal (WebView moderne)
+> pour un coût réel — la galère brotli en est l'illustration. Alternative bien moins
+> chère si on veut juste virer Chromium 83 : **pywebview + WebView2** (100 % Python,
+> zéro toolchain Rust).
