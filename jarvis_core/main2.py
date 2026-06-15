@@ -4518,7 +4518,50 @@ def start_frontend_static_server(port: int = 5173):
     print(f"[FRONTEND-STATIC] Bundle servi sur http://{host}:{port}")
     server.serve_forever()
 
+def _ensure_ollama():
+    """Demarre `ollama serve` en arriere-plan s'il est installe mais pas joignable.
+
+    But : avoir des modeles LOCAUX (assistant Code, cerveau local) des le
+    lancement du shell/.exe, sans devoir lancer Ollama a la main. No-op si Ollama
+    tourne deja, n'est pas installe, ou si OLLAMA_URL pointe vers un hote distant
+    (Docker). Conçu pour tourner dans un thread (ne bloque pas le boot)."""
+    # Ne gere QUE l'instance locale (pas un Ollama distant type conteneur).
+    if not any(h in OLLAMA_URL for h in ("127.0.0.1", "localhost")):
+        return
+    try:
+        requests.get(f"{OLLAMA_URL}/api/tags", timeout=1.5)
+        return  # deja joignable -> rien a faire
+    except Exception:
+        pass
+    ollama_bin = shutil.which("ollama")
+    if not ollama_bin:
+        print("[JARVIS] Ollama introuvable dans le PATH — pas de modele local "
+              "(installe Ollama : https://ollama.com).")
+        return
+    try:
+        # CREATE_NO_WINDOW : pas de fenetre console qui flashe (app GUI).
+        creationflags = 0x08000000 if os.name == "nt" else 0
+        subprocess.Popen(
+            [ollama_bin, "serve"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=creationflags,
+        )
+        print("[JARVIS] Demarrage d'Ollama en arriere-plan (modeles locaux)...")
+        for _ in range(30):  # attend ~15s que le serveur reponde
+            try:
+                requests.get(f"{OLLAMA_URL}/api/tags", timeout=1)
+                print("[JARVIS] Ollama est pret.")
+                return
+            except Exception:
+                time.sleep(0.5)
+        print("[JARVIS] Ollama lance mais pas encore joignable (premier demarrage lent ?).")
+    except Exception as e:  # noqa: BLE001
+        print(f"[JARVIS] Impossible de demarrer Ollama : {e}")
+
+
 def main():
+    # Demarre Ollama en arriere-plan (modeles locaux) sans bloquer le boot.
+    threading.Thread(target=_ensure_ollama, daemon=True).start()
     print()
     print("=" * 60)
     print("   J.A.R.V.I.S — Mode Console + Interface Web")
