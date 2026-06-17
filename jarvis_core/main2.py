@@ -575,6 +575,15 @@ except Exception as e:
     print(f"[SYS] Module system_actions desactive : {e}")
     system_actions = None
 
+# Controle PC profond (remplace system_actions + pc_actions pour la detection ;
+# pc_actions reste importe ci-dessus UNIQUEMENT pour ses helpers internes
+# _bring_to_front/_ouvrir_app utilises par les tools Gemini et la boucle Spotify).
+try:
+    from jarvis_actions.pc_control import executer as pc_control_executer
+except Exception as e:
+    print(f"[PCCTL] Module pc_control desactive : {e}")
+    pc_control_executer = None
+
 try:
     from jarvis_actions import dev_actions
 except Exception as e:
@@ -3550,34 +3559,51 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=T
         except Exception as e:
             print(f"[DISPLAY] Erreur : {e}")
 
-    # Actions systeme (energie, fenetres, infos materielles, fermer un programme,
-    # presse-papier, corbeille) AVANT pc_actions : "eteins le pc" doit matcher ici
-    # et non etre confondu avec l'ouverture generique d'une app.
-    if system_actions:
+    # Controle PC profond : UN point d'entree (jarvis_actions.pc_control) qui
+    # remplace system_actions + pc_actions. Routeur pur -> capacite par domaine
+    # (energie, fenetres, process, infos, media, volume, presse-papier, fichiers,
+    # apps, parametres). "eteins le pc" matche ici, pas l'ouverture generique
+    # d'app. Rollback : JARVIS_PC_LEGACY=1 -> retombe sur les anciens modules.
+    _pc_legacy = os.environ.get("JARVIS_PC_LEGACY") == "1"
+    if pc_control_executer and not _pc_legacy:
         try:
-            sys_reponse, sys_ok = system_actions.executer(texte_utilisateur)
-            if sys_reponse is not None:
-                print(f"[SYS] {sys_reponse}")
+            rep, _ok = pc_control_executer(texte_utilisateur)
+            if rep is not None:  # non-None = gere (succes OU echec explique)
+                print(f"[PCCTL] {rep}")
                 if mobile_ws:
                     _skip_pc_audio = True
-                await parler(sys_reponse)
+                await parler(rep)
                 _skip_pc_audio = False
                 return
-        except Exception as e:
-            print(f"[SYS] Erreur action systeme : {e}")
+        except Exception as e:  # filet : le package est deja never-throw
+            print(f"[PCCTL] Erreur : {e}")
 
-    if pc_actions:
-        try:
-            pc_reponse, pc_ok = pc_actions.executer(texte_utilisateur)
-            if pc_reponse and pc_ok:
-                print(f"[PC] {pc_reponse}")
-                if mobile_ws:
-                    _skip_pc_audio = True
-                await parler(pc_reponse)
-                _skip_pc_audio = False
-                return
-        except Exception as e:
-            print(f"[PC] Erreur action locale : {e}")
+    # Repli LEGACY (seulement si pc_control indisponible ou rollback explicite).
+    if pc_control_executer is None or _pc_legacy:
+        if system_actions:
+            try:
+                sys_reponse, _ = system_actions.executer(texte_utilisateur)
+                if sys_reponse is not None:
+                    print(f"[SYS] {sys_reponse}")
+                    if mobile_ws:
+                        _skip_pc_audio = True
+                    await parler(sys_reponse)
+                    _skip_pc_audio = False
+                    return
+            except Exception as e:
+                print(f"[SYS] Erreur action systeme : {e}")
+        if pc_actions:
+            try:
+                pc_reponse, pc_ok = pc_actions.executer(texte_utilisateur)
+                if pc_reponse and pc_ok:
+                    print(f"[PC] {pc_reponse}")
+                    if mobile_ws:
+                        _skip_pc_audio = True
+                    await parler(pc_reponse)
+                    _skip_pc_audio = False
+                    return
+            except Exception as e:
+                print(f"[PC] Erreur action locale : {e}")
 
     if claude_bridge and any(kw in texte_utilisateur.lower() for kw in (
         "demande a claude code", "demande à claude code", "passe a claude code",
