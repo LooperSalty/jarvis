@@ -146,12 +146,15 @@ function mount(root: HTMLElement): Cleanup {
   pNotes.body.appendChild(notesArea);
   root.appendChild(pNotes.root);
 
-  // ── Barre d'actions ──
+  // ── Barre d'actions (sticky : suit le scroll, toujours visible) ──
   const actions = el("div", "actions-bar");
-  const saveBtn = button("Enregistrer le profil", "primary");
+  actions.appendChild(
+    el("span", "actions-bar-note", "Pense a enregistrer tes modifications")
+  );
   const reloadBtn = button("Recharger", "ghost");
-  actions.appendChild(saveBtn);
+  const saveBtn = button("Enregistrer le profil", "primary");
   actions.appendChild(reloadBtn);
+  actions.appendChild(saveBtn);
   root.appendChild(actions);
 
   // ── Lecture / ecriture du profil ──

@@ -4544,6 +4544,30 @@ def start_frontend_static_server(port: int = 5173):
     print(f"[FRONTEND-STATIC] Bundle servi sur http://{host}:{port}")
     server.serve_forever()
 
+def _ollama_chemin_connu():
+    """Chemin de l'executable ollama via les emplacements d'install standards.
+
+    Repli quand `shutil.which("ollama")` echoue : un process lance juste apres
+    l'install (PATH utilisateur fige sans Ollama) ne trouve pas le binaire dans
+    le PATH alors qu'Ollama est installe."""
+    candidats = []
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        candidats.append(Path(local) / "Programs" / "Ollama" / "ollama.exe")
+    program_files = os.environ.get("ProgramFiles")
+    if program_files:
+        candidats.append(Path(program_files) / "Ollama" / "ollama.exe")
+    candidats += [Path("/usr/local/bin/ollama"), Path("/usr/bin/ollama"),
+                  Path.home() / ".ollama" / "bin" / "ollama"]
+    for c in candidats:
+        try:
+            if c.is_file():
+                return str(c)
+        except OSError:
+            continue
+    return None
+
+
 def _ensure_ollama():
     """Demarre `ollama serve` en arriere-plan s'il est installe mais pas joignable.
 
@@ -4559,10 +4583,10 @@ def _ensure_ollama():
         return  # deja joignable -> rien a faire
     except Exception:
         pass
-    ollama_bin = shutil.which("ollama")
+    ollama_bin = shutil.which("ollama") or _ollama_chemin_connu()
     if not ollama_bin:
-        print("[JARVIS] Ollama introuvable dans le PATH — pas de modele local "
-              "(installe Ollama : https://ollama.com).")
+        print("[JARVIS] Ollama introuvable (ni PATH ni install standard) — pas "
+              "de modele local (installe Ollama : https://ollama.com).")
         return
     try:
         # CREATE_NO_WINDOW : pas de fenetre console qui flashe (app GUI).

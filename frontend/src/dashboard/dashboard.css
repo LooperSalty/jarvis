@@ -293,18 +293,32 @@ select.input { appearance: auto; }
   flex-wrap: wrap;
 }
 
+/* Barre de sauvegarde : sticky en bas du viewport, elle SUIT le scroll pour que
+   le bouton "Enregistrer" reste toujours visible dans les formulaires longs
+   (Profil, nom d'utilisateur...) sans avoir a defiler jusqu'en bas. */
 .actions-bar {
   display: flex;
   gap: var(--space-3);
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   position: sticky;
   bottom: 14px;
+  z-index: 12;
+  margin-top: var(--space-2);
   padding: var(--space-3) var(--space-4);
   background: var(--panel);
-  border: 1px solid var(--panel-border);
+  border: 1px solid var(--accent-border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-2);
   backdrop-filter: blur(12px);
-  width: fit-content;
+}
+
+/* Libelle optionnel a gauche de la barre ("Modifications non enregistrees"). */
+.actions-bar-note {
+  margin-right: auto;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
 }
 
 /* ── Boutons ────────────────────────────────────────────────── */

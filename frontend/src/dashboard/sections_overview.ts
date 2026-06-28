@@ -111,11 +111,13 @@ function mount(root: HTMLElement): Cleanup {
   versionRow.appendChild(updateLink);
   backend.body.appendChild(versionRow);
 
+  // Le bouton d'enregistrement du nom vit dans une barre sticky en bas de page
+  // (cf. plus bas) : il SUIT le scroll et reste visible pendant qu'on parcourt
+  // les integrations / cles, sans avoir a remonter au champ.
   const nameInput = textInput("Monsieur", "");
-  const nameBtn = button("Enregistrer", "primary");
+  const nameBtn = button("Enregistrer le nom", "primary");
   const nameRow = el("div", "form-row");
   nameRow.appendChild(labeledField("Nom d'utilisateur (Jarvis s'adresse a vous ainsi)", nameInput));
-  nameRow.appendChild(nameBtn);
   backend.body.appendChild(nameRow);
   root.appendChild(backend.root);
 
@@ -219,6 +221,12 @@ function mount(root: HTMLElement): Cleanup {
   secrets.body.appendChild(migrateBtn);
   secrets.body.appendChild(secretsNote);
   root.appendChild(secrets.root);
+
+  // ── Barre de sauvegarde du nom (sticky : suit le scroll) ──
+  const saveBar = el("div", "actions-bar");
+  saveBar.appendChild(el("span", "actions-bar-note", "Nom d'utilisateur"));
+  saveBar.appendChild(nameBtn);
+  root.appendChild(saveBar);
 
   /** Affiche le lien d'appairage + token recu (echappe via textContent). */
   function renderPairing(msg: ws.WsMessage): void {

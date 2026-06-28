@@ -278,8 +278,15 @@ CATALOGUE_MCP: tuple[dict[str, Any], ...] = (
     },
 )
 
-OLLAMA_TAGS_URL = "http://localhost:11434/api/tags"
-OLLAMA_TIMEOUT_S = 1.5
+# Meme defaut/surcharge que main2.py et model_advisor_service.py.
+# "127.0.0.1" et PAS "localhost" : sous Windows, "localhost" resout d'abord en
+# IPv6 (::1) ou Ollama N'ECOUTE PAS (il bind l'IPv4 seul). Le repli IPv6->IPv4
+# de la stack reseau prend ~2 s, ce qui DEPASSE le timeout court -> le dashboard
+# croyait alors "Ollama ne fonctionne pas" alors que le serveur tournait et que
+# le reste de Jarvis (qui tape 127.0.0.1) l'atteignait sans probleme.
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
+OLLAMA_TAGS_URL = f"{OLLAMA_URL}/api/tags"
+OLLAMA_TIMEOUT_S = 3.0
 
 # Graphe memoire
 MAX_LIENS_TRANSVERSAUX = 60
@@ -1138,22 +1145,81 @@ def _nom_modele_valide(model: str) -> bool:
     return bool(model) and not model.startswith("-") and bool(_MODELE_OLLAMA_RE.match(model))
 
 
+def _ollama_exe() -> str | None:
+    """Localise l'executable ollama : PATH d'abord, puis emplacements d'install
+    connus.
+
+    Pourquoi le repli : sous Windows, l'installeur d'Ollama ajoute son dossier au
+    PATH UTILISATEUR, mais un process deja lance (Jarvis demarre juste apres
+    l'install, ou par l'installeur lui-meme) herite d'un PATH FIGE sans Ollama ->
+    shutil.which("ollama") renvoie None alors qu'Ollama est bel et bien installe,
+    et le dashboard repondait a tort "Ollama n'est pas installe". On replie donc
+    sur le chemin d'installation standard."""
+    import shutil
+
+    exe = shutil.which("ollama")
+    if exe:
+        return exe
+    candidats: list[Path] = []
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        candidats.append(Path(local) / "Programs" / "Ollama" / "ollama.exe")
+    program_files = os.environ.get("ProgramFiles")
+    if program_files:
+        candidats.append(Path(program_files) / "Ollama" / "ollama.exe")
+    # Replis Linux / macOS classiques.
+    candidats += [
+        Path("/usr/local/bin/ollama"),
+        Path("/usr/bin/ollama"),
+        Path.home() / ".ollama" / "bin" / "ollama",
+    ]
+    for c in candidats:
+        try:
+            if c.is_file():
+                return str(c)
+        except OSError:
+            continue
+    return None
+
+
 def _lancer_ollama_pull(model: str) -> tuple[bool, str]:
     """Lance 'ollama pull <model>' en arriere-plan (non bloquant).
 
-    Returns (demarre, message). False si Ollama introuvable sur le PC.
+    Localise Ollama de facon robuste (PATH + chemin d'install), et demarre le
+    serveur s'il n'est pas joignable (sinon 'ollama pull' echoue avec
+    "could not connect to ollama app"). Returns (demarre, message).
+    False seulement si Ollama est reellement introuvable sur le PC.
     """
-    import shutil
     import subprocess
     import sys as _sys
 
-    exe = shutil.which("ollama")
+    exe = _ollama_exe()
     if not exe:
         return False, "Ollama n'est pas installe sur ce PC (voir ollama.com)."
+    creationflags = 0
+    if _sys.platform == "win32":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    # Serveur eteint -> le demarrer PUIS attendre qu'il ecoute avant le pull :
+    # 'ollama pull' echoue ("could not connect to ollama app") si le port 11434
+    # n'est pas encore ouvert (Popen rend la main avant le bind du serveur).
+    if not _ollama_disponible():
+        try:
+            subprocess.Popen(
+                [exe, "serve"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                creationflags=creationflags,
+            )
+        except Exception as e:  # pragma: no cover - best effort
+            print(f"[DASHBOARD] Demarrage d'Ollama impossible : {e}")
+        else:
+            # Poll borne (~8 s). On tape 127.0.0.1 : un refus est instantane, donc
+            # la boucle sort vite des que le serveur ecoute. Tourne dans un thread
+            # executor (cf. _h_model_select) -> ne bloque pas l'event loop WS.
+            for _ in range(16):
+                if _ollama_disponible():
+                    break
+                time.sleep(0.5)
     try:
-        creationflags = 0
-        if _sys.platform == "win32":
-            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         # "--" termine le parsing d'options : model ne peut pas devenir un flag.
         subprocess.Popen(
             [exe, "pull", "--", model],
