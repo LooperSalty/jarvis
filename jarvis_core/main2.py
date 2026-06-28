@@ -647,6 +647,12 @@ except Exception as e:
     jarvis_browser = None
 
 try:
+    from jarvis_actions import operator as jarvis_operator
+except Exception as e:
+    print(f"[OPERATOR] Module operator desactive : {e}")
+    jarvis_operator = None
+
+try:
     from jarvis_actions import agent as jarvis_agent
 except Exception as e:
     print(f"[AGENT] Module agent desactive : {e}")
@@ -1052,6 +1058,18 @@ async def _diffuser_payload_ui(payload):
     if cibles and isinstance(payload, dict):
         message = json.dumps(payload)
         await asyncio.gather(*[ws.send(message) for ws in cibles], return_exceptions=True)
+
+
+def _operator_broadcast(payload):
+    """Diffuse un payload Operator (operator_activity / operator_pending / ...) a
+    tous les clients authentifies. Best-effort et THREAD-SAFE : planifie la
+    coroutine de diffusion sur l'event loop du serveur WS (_WS_LOOP), ce qui
+    permet de l'appeler depuis un thread (ex. mode reunion) comme depuis le loop."""
+    try:
+        if _WS_LOOP is not None:
+            asyncio.run_coroutine_threadsafe(_diffuser_payload_ui(payload), _WS_LOOP)
+    except Exception:
+        pass
 
 
 async def broadcast_chat(role, text):
@@ -3508,6 +3526,27 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=T
         except Exception as e:
             print(f"[BROWSER] Erreur : {e}")
 
+    # --- OPERATOR (tri mail, RDV, reunion, devis, recherche, approbations) ---
+    # Verbes specifiques : "trie mes mails", "fais un devis", "ecoute la reunion",
+    # "fais une recherche approfondie", + "oui/non/envoie/annule" SEULEMENT si une
+    # approbation est en attente. Place APRES browser pour que "cherche X sur
+    # google" reste pilote par Chromium. Renvoie (None, False) si non concerne.
+    if jarvis_operator:
+        try:
+            op_reponse, op_ok = await jarvis_operator.async_executer(texte_utilisateur)
+            if op_reponse is not None:
+                print(f"[OPERATOR] {op_reponse}")
+                if mobile_ws:
+                    _skip_pc_audio = True
+                # Reponses parfois longues (rapport mail, synthese recherche) :
+                # on tronque la part vocalisee, le detail reste dans le dashboard.
+                vocal = op_reponse if len(op_reponse) < 600 else op_reponse[:600] + "..."
+                await parler(vocal)
+                _skip_pc_audio = False
+                return
+        except Exception as e:
+            print(f"[OPERATOR] Erreur : {e}")
+
     # NB : le connecteur Spotify API est branche plus haut (section 2ter),
     # AVANT les interceptions touches media, pour que pause/suivant/volume
     # controlent le device Spotify actif quand l'API est configuree.
@@ -4380,6 +4419,26 @@ def start_ia():
         _WS_LOOP = asyncio.get_running_loop()
         print("[WEB] Serveur WebSocket demarre sur ws://0.0.0.0:8765")
         print(f"[WEB] Accessible depuis le reseau : ws://{LAN_IP}:8765")
+        # Operator : injecte les dependances (services Google, LLM, parler,
+        # broadcast WS) et demarre le planificateur de tri mail de fond.
+        if jarvis_operator:
+            try:
+                async def _operator_demander_json(prompt):
+                    return await demander_ia(prompt)
+                jarvis_operator.init({
+                    "get_gmail_service": get_gmail_service,
+                    "get_calendar_service": get_calendar_service,
+                    "get_docs_service": get_docs_service,
+                    "demander_ia": demander_ia,
+                    "demander_json": _operator_demander_json,
+                    "parler": parler,
+                    "broadcast_ws": _operator_broadcast,
+                    "user_name": USER_NAME,
+                })
+                asyncio.create_task(jarvis_operator.demarrer_planificateur())
+                print("[OPERATOR] Sous-systeme Operator actif.")
+            except Exception as e:
+                print(f"[OPERATOR] Echec demarrage : {e}")
         # Connecte les serveurs MCP actifs et expose leurs tools a l'agent
         # (meme event loop que ws_handler : les sessions MCP y vivent).
         if mcp_client:
