@@ -2920,6 +2920,10 @@ async def _agent_dispatch(name: str, args: dict) -> str:
     """Mappe les noms de tools (Gemini function calls) -> vraies fonctions Jarvis.
     Retourne une chaine de resultat lisible par l'IA pour son raisonnement."""
     try:
+        # --- Operator (tri mail, RDV, recherche, devis) ---
+        if name.startswith("operator_") and jarvis_operator:
+            return await jarvis_operator.dispatch(name, args)
+
         # --- Domotique Meross ---
         if name == "toggle_light":
             if not meross:
@@ -3729,7 +3733,11 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=T
                 system_prompt=sys_prompt,
                 user_text=texte_utilisateur,
                 dispatch=_agent_dispatch,
-                extra_tools=_MCP_TOOL_DECLS or None,
+                extra_tools=(
+                    (list(_MCP_TOOL_DECLS or [])
+                     + (jarvis_operator.tools() if jarvis_operator else []))
+                    or None
+                ),
             )
             print(f"[AGENT] Reponse finale : {reponse}")
         except Exception as e:
@@ -4435,6 +4443,10 @@ def start_ia():
                     "demander_json": _operator_demander_json,
                     "parler": parler,
                     "broadcast_ws": _operator_broadcast,
+                    "show_content": (
+                        (lambda titre, contenu, t="info": display_actions.montrer_contenu(titre, contenu, t))
+                        if display_actions else None
+                    ),
                     "user_name": USER_NAME,
                 })
                 asyncio.create_task(jarvis_operator.demarrer_planificateur())

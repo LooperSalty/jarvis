@@ -64,7 +64,11 @@ async def test_async_executer_non_gere_renvoie_none(op, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_async_executer_intent_non_branche(op, monkeypatch):
+async def test_async_executer_degrade_sans_ctx(op, monkeypatch):
+    # Sans dependances injectees (ctx vide), une intention metier degrade
+    # proprement (message d'indisponibilite) plutot que de crasher.
     monkeypatch.setattr(op.approvals, "lister", lambda: [])
+    op.init({})
     rep, ok = await op.async_executer("trie mes mails")
-    assert ok is True and "pas encore" in rep.lower()
+    assert rep is not None
+    assert "disponible" in rep.lower()
