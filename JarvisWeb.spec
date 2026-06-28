@@ -89,6 +89,14 @@ for _pkg_voix in ('faster_whisper', 'openwakeword'):
         print(f"[JarvisWeb.spec] ATTENTION : {_pkg_voix} non installe — voix locale "
               "(JARVIS_STT_LOCAL/JARVIS_WAKE_LOCAL) NON embarquee dans le .exe")
 
+# Operator : fpdf2 (devis PDF) en import lazy dans devis_pdf.py — hiddenimport
+# explicite sinon PyInstaller peut le rater (devis sans PDF dans le .exe).
+try:
+    hiddenimports += collect_submodules('fpdf')
+except Exception:
+    print("[JarvisWeb.spec] ATTENTION : fpdf2 non installe — devis PDF (Operator) "
+          "NON embarques dans le .exe")
+
 # Pas de Qt ni de pywebview pour cette version legere — juste le backend
 excludes = [
     'tkinter',
