@@ -1308,7 +1308,9 @@ SCOPES = [
     "https://www.googleapis.com/auth/documents",
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/gmail.send",
-    "https://www.googleapis.com/auth/gmail.readonly",
+    # gmail.modify : requis pour etiqueter/archiver les mails (Operator). Englobe
+    # gmail.readonly. Re-consentement OAuth au prochain run (token.pickle regenere).
+    "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/calendar",
 ]
