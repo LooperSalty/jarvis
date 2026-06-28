@@ -476,3 +476,50 @@ async def dispatch(name: str, args: dict) -> str:
     except Exception as e:
         return f"Erreur outil {name} : {e}"
     return f"Outil operator inconnu : {name}"
+
+
+# ============================================================
+# Helpers DASHBOARD (appeles par jarvis_dashboard_api)
+# ============================================================
+
+def meeting_etat() -> dict:
+    """Etat de la session reunion (actif + transcript) pour le dashboard."""
+    return meeting.etat()
+
+
+async def dashboard_meeting_start() -> dict:
+    msg, ok = await _meeting_start()
+    return {"ok": ok, "message": msg, "actif": meeting.etat().get("actif", False)}
+
+
+async def dashboard_meeting_stop() -> dict:
+    transcript = meeting.etat().get("transcript", "")
+    msg, ok = await _meeting_stop()
+    return {"ok": ok, "message": msg, "actif": False, "transcript": transcript}
+
+
+async def dashboard_meeting_import(path: str) -> dict:
+    """Transcrit un fichier audio importe et le definit comme transcript courant."""
+    transcript = await asyncio.to_thread(meeting.transcrire_fichier, path)
+    if not transcript.strip():
+        return {"ok": False, "message": "Transcription vide (fichier introuvable ou Whisper absent).",
+                "transcript": ""}
+    meeting.definir_transcript(transcript)
+    report.journaliser({"type": "reunion_importee", "detail": path})
+    return {"ok": True, "message": "Audio transcrit. Tu peux generer un devis depuis cette reunion.",
+            "transcript": transcript}
+
+
+async def dashboard_research(query: str) -> dict:
+    demander_ia = _CTX.get("demander_ia")
+    if not demander_ia:
+        return {"resume": "Recherche indisponible (IA non configuree).", "sources": []}
+    res = await research.rechercher(_nettoyer_requete(query), demander_ia)
+    report.journaliser({"type": "recherche", "detail": (query or "")[:120]})
+    return res
+
+
+async def dashboard_creer_devis(description: str = "") -> dict:
+    """Prepare un devis (depuis la reunion courante ou la description) -> approbation."""
+    msg, ok = await _creer_devis({"texte": description})
+    return {"ok": ok, "message": msg, "pending": approvals.lister()}

@@ -92,11 +92,16 @@ except Exception as e:
 
 try:
     from jarvis_actions import operator as operator_mod
-    from jarvis_actions.operator import report as op_report, approvals as op_approvals
+    from jarvis_actions.operator import (
+        report as op_report,
+        approvals as op_approvals,
+        config as op_config,
+    )
 except Exception as e:
     operator_mod = None
     op_report = None
     op_approvals = None
+    op_config = None
     print(f"[DASHBOARD] Module operator indisponible : {e}")
 
 try:
@@ -2010,6 +2015,57 @@ async def _h_operator_reject(data: dict) -> dict:
     return {"action": "dash_operator_pending", "pending": op_approvals.lister(), "ok": bool(ok)}
 
 
+async def _h_operator_settings_get(data: dict) -> dict:
+    """Reglages Operator (societe, TVA, compteur devis, regles, autonomie). Sans secret."""
+    if op_config is None:
+        return {"action": "dash_operator_settings", "config": {}, "error": "indisponible"}
+    return {"action": "dash_operator_settings", "config": op_config.charger()}
+
+
+async def _h_operator_settings_set(data: dict) -> dict:
+    """Enregistre des reglages Operator (fusion partielle validee)."""
+    if op_config is None:
+        return {"action": "dash_operator_settings", "config": {}, "ok": False}
+    config = await _en_executor(lambda: op_config.sauvegarder(data.get("updates")))
+    return {"action": "dash_operator_settings", "config": config, "ok": True}
+
+
+async def _h_operator_meeting(data: dict) -> dict:
+    """Controle de la session reunion : start / stop / import / state."""
+    if operator_mod is None:
+        return {"action": "dash_operator_meeting", "ok": False, "message": "indisponible"}
+    op = str(data.get("op", "state") or "state")
+    if op == "start":
+        res = await operator_mod.dashboard_meeting_start()
+    elif op == "stop":
+        res = await operator_mod.dashboard_meeting_stop()
+    elif op == "import":
+        res = await operator_mod.dashboard_meeting_import(str(data.get("path", "") or ""))
+    else:
+        res = operator_mod.meeting_etat()
+    res = dict(res)
+    res["action"] = "dash_operator_meeting"
+    return res
+
+
+async def _h_operator_research(data: dict) -> dict:
+    """Recherche internet depuis le dashboard -> synthese + sources."""
+    if operator_mod is None:
+        return {"action": "dash_operator_research", "resume": "", "sources": []}
+    res = await operator_mod.dashboard_research(str(data.get("query", "") or ""))
+    return {"action": "dash_operator_research", "resume": res.get("resume", ""),
+            "sources": res.get("sources", [])}
+
+
+async def _h_operator_devis(data: dict) -> dict:
+    """Prepare un devis (depuis la reunion courante ou une description) -> approbation."""
+    if operator_mod is None:
+        return {"action": "dash_operator_pending", "pending": [], "ok": False, "message": "indisponible"}
+    res = await operator_mod.dashboard_creer_devis(str(data.get("description", "") or ""))
+    return {"action": "dash_operator_pending", "pending": res.get("pending", []),
+            "ok": res.get("ok", False), "message": res.get("message", "")}
+
+
 # ==========================================
 # DISPATCH
 # ==========================================
@@ -2064,6 +2120,11 @@ _HANDLERS = {
     "dash_operator_init": _h_operator_init,
     "dash_operator_confirm": _h_operator_confirm,
     "dash_operator_reject": _h_operator_reject,
+    "dash_operator_settings_get": _h_operator_settings_get,
+    "dash_operator_settings_set": _h_operator_settings_set,
+    "dash_operator_meeting": _h_operator_meeting,
+    "dash_operator_research": _h_operator_research,
+    "dash_operator_devis": _h_operator_devis,
 }
 
 

@@ -136,6 +136,12 @@ def etat() -> dict[str, Any]:
     return {"actif": bool(_ETAT["actif"]), "transcript": str(_ETAT["transcript"])}
 
 
+def definir_transcript(texte: str) -> None:
+    """Remplace le transcript courant (ex: apres import d'un fichier audio) afin
+    qu'il serve de source a une generation de devis ('fais un devis')."""
+    _ETAT["transcript"] = str(texte or "")
+
+
 def _boucle_capture(sr: Any, broadcast: Callable[[dict], None] | None) -> None:
     """Boucle micro (thread daemon) : ecoute en continu et alimente le transcript.
 
