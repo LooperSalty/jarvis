@@ -33,6 +33,12 @@ jarvis_ui_config.json
 jarvis_routines.json
 jarvis_triggers.json
 
+# Config Operator perso (societe, compteur devis) + etat runtime (journal, file
+# d'approbation). Modele : examples/jarvis_operator_example.json
+jarvis_operator.json
+jarvis_operator_report.json
+jarvis_operator_approvals.json
+
 # Token d'appairage WebSocket local (genere auto, non versionne).
 # Sert a authentifier les clients distants (mobile/LAN). Voir jarvis_security.py
 jarvis_ws_token.txt
