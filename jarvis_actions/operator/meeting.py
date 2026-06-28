@@ -142,6 +142,21 @@ def definir_transcript(texte: str) -> None:
     _ETAT["transcript"] = str(texte or "")
 
 
+def _transcrire_chunk(recognizer: Any, audio: Any) -> str:
+    """Transcrit un segment audio. Honore JARVIS_STT_LOCAL=1 (Whisper local) pour
+    ne PAS envoyer une reunion confidentielle au cloud ; repli Google sinon."""
+    if os.environ.get("JARVIS_STT_LOCAL"):
+        try:
+            from jarvis_actions import voice_stt
+
+            txt = voice_stt.transcrire(recognizer, audio, language="fr-FR")
+            if txt:
+                return txt
+        except Exception:
+            pass
+    return recognizer.recognize_google(audio, language="fr-FR")
+
+
 def _boucle_capture(sr: Any, broadcast: Callable[[dict], None] | None) -> None:
     """Boucle micro (thread daemon) : ecoute en continu et alimente le transcript.
 
@@ -156,7 +171,7 @@ def _boucle_capture(sr: Any, broadcast: Callable[[dict], None] | None) -> None:
             while _ETAT["actif"]:
                 try:
                     audio = recognizer.listen(source, timeout=5, phrase_time_limit=15)
-                    chunk = recognizer.recognize_google(audio, language="fr-FR")
+                    chunk = _transcrire_chunk(recognizer, audio)
                 except Exception:
                     continue
                 if not chunk:

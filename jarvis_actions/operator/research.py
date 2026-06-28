@@ -8,6 +8,7 @@ de la requete par le LLM (sans sources).
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any, Awaitable, Callable
 
@@ -94,7 +95,9 @@ async def rechercher(
     if cle:
         try:
             getter = http_get or _http_get_reel
-            brut = getter(_SERPAPI_URL, {"q": q, "api_key": cle, "engine": "google"})
+            params = {"q": q, "api_key": cle, "engine": "google"}
+            # GET reseau synchrone -> hors event loop (ne pas geler le serveur WS).
+            brut = await asyncio.to_thread(getter, _SERPAPI_URL, params)
             sources = shaper_resultats(brut)
         except Exception:
             sources = []

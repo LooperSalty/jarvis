@@ -252,6 +252,8 @@ export const sectionOperator: Section = {
       if (message) showToast(message, asBool(r.ok));
     }));
     offs.push(ws.on("operator_activity", () => ws.send({ type: "dash_operator_init" })));
+    // Approbation poussee en direct (ex: brouillon cree par le tri mail de fond).
+    offs.push(ws.on("operator_pending", (m) => renderPending(asArray(asRecord(m).pending))));
     offs.push(ws.on("operator_transcript", (m) => {
       const chunk = asString(asRecord(m).chunk);
       if (!chunk) return;
@@ -280,7 +282,8 @@ export const sectionOperator: Section = {
         const item = el("div", "op-source");
         item.appendChild(el("span", "op-source-title", asString(sr.titre)));
         const lien = asString(sr.lien);
-        if (lien) {
+        // N'autorise que http(s) (jamais javascript:/data: meme via SerpAPI).
+        if (lien && /^https?:\/\//i.test(lien)) {
           const a = el("a", "op-source-link", lien) as HTMLAnchorElement;
           a.href = lien;
           a.target = "_blank";

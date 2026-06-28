@@ -55,6 +55,17 @@ def test_non_pertinent_renvoie_none(op):
     assert op._router("", a_des_approbations=True) is None
 
 
+def test_confirmation_stricte_pas_de_faux_positif(op):
+    # Securite : une phrase qui commence par "ok"/"oui" mais continue ne doit PAS
+    # declencher un envoi irreversible quand une approbation est en attente.
+    assert op._router("ok jarvis quelle heure est-il", a_des_approbations=True) is None
+    assert op._router("oui mais attends", a_des_approbations=True) is None
+    # Les confirmations courtes/explicites passent toujours.
+    assert op._router("envoie le devis", a_des_approbations=True)[0] == "approve_confirm"
+    assert op._router("valide", a_des_approbations=True)[0] == "approve_confirm"
+    assert op._router("pas maintenant", a_des_approbations=True)[0] == "approve_reject"
+
+
 @pytest.mark.asyncio
 async def test_async_executer_non_gere_renvoie_none(op, monkeypatch):
     # Aucune approbation en attente -> lister() renvoie [] -> 'oui' non capture.

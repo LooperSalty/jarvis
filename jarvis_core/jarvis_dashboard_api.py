@@ -1986,7 +1986,7 @@ async def _h_operator_init(data: dict) -> dict:
                 "error": "Module operator indisponible"}
     try:
         return {"action": "dash_operator_state",
-                "pending": op_approvals.lister(),
+                "pending": op_approvals.lister_public(),
                 "activity": op_report.derniers(50)}
     except Exception as e:
         return {"action": "dash_operator_state", "pending": [], "activity": [], "error": str(e)}
@@ -2002,7 +2002,7 @@ async def _h_operator_confirm(data: dict) -> dict:
         msg, ok = await operator_mod.confirmer_depuis_dashboard(aid)
     except Exception as e:
         msg, ok = f"Erreur : {e}", False
-    return {"action": "dash_operator_pending", "pending": op_approvals.lister(),
+    return {"action": "dash_operator_pending", "pending": op_approvals.lister_public(),
             "ok": bool(ok), "message": msg}
 
 
@@ -2012,7 +2012,7 @@ async def _h_operator_reject(data: dict) -> dict:
         return {"action": "dash_operator_pending", "pending": [], "ok": False}
     aid = str(data.get("id", "") or "")
     ok = op_approvals.rejeter(aid)
-    return {"action": "dash_operator_pending", "pending": op_approvals.lister(), "ok": bool(ok)}
+    return {"action": "dash_operator_pending", "pending": op_approvals.lister_public(), "ok": bool(ok)}
 
 
 async def _h_operator_settings_get(data: dict) -> dict:

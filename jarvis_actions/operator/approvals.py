@@ -44,10 +44,22 @@ def _ecrire(items: list[dict]) -> None:
         print(f"[OPERATOR-APPROVALS] Ecriture echouee : {e}")
 
 
+def _public(item: dict) -> dict:
+    """Vue cliente d'une approbation SANS le payload (qui contient des PII :
+    email client, draft_id, devis complet avec IBAN/SIRET). Le dashboard n'a
+    besoin que de id/type/resume/ts pour afficher et confirmer."""
+    return {k: v for k, v in item.items() if k != "payload"}
+
+
+def lister_public() -> list[dict]:
+    """File d'approbation destinee au CLIENT (sans payload PII)."""
+    return [_public(i) for i in _charger()]
+
+
 def _diffuser() -> None:
     if _broadcast:
         try:
-            _broadcast({"action": "operator_pending", "pending": lister()})
+            _broadcast({"action": "operator_pending", "pending": lister_public()})
         except Exception:
             pass
 

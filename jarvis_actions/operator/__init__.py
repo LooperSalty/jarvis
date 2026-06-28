@@ -32,6 +32,10 @@ from . import (
 )
 
 _CTX: dict[str, Any] = {}
+# Serialise la creation de devis : numero reserve via le compteur persiste, on
+# evite ainsi deux numeros identiques si deux demandes arrivent en parallele
+# (voix + dashboard + tool Gemini).
+_DEVIS_LOCK = asyncio.Lock()
 
 
 def init(ctx: dict[str, Any]) -> None:
@@ -59,8 +63,21 @@ _REGLES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\b(fais|lance)\b.*\brecherche(s)?\b"), "research"),
     (re.compile(r"\brecherche(r)?\b.*\b(sur internet|en ligne)\b"), "research"),
 ]
-_CONFIRM = re.compile(r"^\s*(oui|ok|d'?accord|valide|envoie|envoyer|confirme)\b", re.I)
-_REJECT = re.compile(r"^\s*(non|annule|annuler|refuse|rejette|laisse tomber)\b", re.I)
+# Confirmation/rejet ANCRES en fin de phrase : un envoi est irreversible, donc on
+# n'accepte qu'une phrase courte de confirmation (« oui », « envoie le devis »,
+# « valide »…) et PAS une phrase qui commence par « ok » suivie d'autre chose
+# (ex. « ok jarvis quelle heure est-il » ne doit pas envoyer le devis en attente).
+_CONFIRM = re.compile(
+    r"^\s*(oui|ouais|ok|d'?accord|c'est bon|vas[- ]?y|valide|confirme|"
+    r"envoie(?:\s+(?:le|la|ce|cette|moi)?\s*(?:devis|mail|email|r[eé]ponse|message)?)?)"
+    r"\s*[.! ]*$",
+    re.I,
+)
+_REJECT = re.compile(
+    r"^\s*(non|annule[rz]?|refuse|rejette|laisse tomber|pas maintenant|plus tard)"
+    r"\s*[.! ]*$",
+    re.I,
+)
 
 
 def _router(texte: str, a_des_approbations: bool) -> tuple[str, dict] | None:
@@ -258,6 +275,9 @@ async def _trier_mails() -> tuple[str, bool]:
                         "resume": f"Reponse a {ent['from']} : {ent['sujet']}",
                         "payload": {"draft_id": draft_id, "sujet": ent["sujet"]},
                     })
+                    # Journalise pour que le dashboard rafraichisse (et garde une
+                    # trace) meme quand le tri tourne en tache de fond.
+                    report.journaliser({"type": "email_brouillon", "detail": ent["sujet"]})
         n += 1
     return report.resume_textuel(depuis=depuis), True
 
@@ -357,9 +377,10 @@ async def _creer_devis(params: dict) -> tuple[str, bool]:
     if not source:
         return ("Je n'ai pas d'elements pour le devis. Dicte-moi les prestations "
                 "ou lance d'abord une reunion."), False
-    d = await devis.from_transcript(source, demander_json, cfg)
-    config.incrementer_compteur_devis()  # reserve le numero
-    pdf_path = devis_pdf.rendre(d)
+    async with _DEVIS_LOCK:
+        d = await devis.from_transcript(source, demander_json, cfg)
+        config.incrementer_compteur_devis()  # reserve le numero
+        pdf_path = await asyncio.to_thread(devis_pdf.rendre, d)
     client = d.get("client") or {}
     client_email = (client.get("email") or "").strip()
     numero = d.get("numero", "")
@@ -522,4 +543,4 @@ async def dashboard_research(query: str) -> dict:
 async def dashboard_creer_devis(description: str = "") -> dict:
     """Prepare un devis (depuis la reunion courante ou la description) -> approbation."""
     msg, ok = await _creer_devis({"texte": description})
-    return {"ok": ok, "message": msg, "pending": approvals.lister()}
+    return {"ok": ok, "message": msg, "pending": approvals.lister_public()}

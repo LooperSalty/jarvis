@@ -29,6 +29,18 @@ def test_plus_recente(ap):
     assert ap.plus_recente()["id"] == a2
 
 
+def test_lister_public_sans_payload(ap):
+    # Le payload contient des PII (email client, IBAN/SIRET du devis) : il ne doit
+    # JAMAIS etre diffuse aux clients. lister_public() le retire.
+    ap.ajouter({"type": "send_devis", "resume": "Devis ACME",
+                "payload": {"client_email": "x@y.z", "iban": "FR76..."}})
+    pub = ap.lister_public()
+    assert pub and "payload" not in pub[0]
+    assert pub[0]["resume"] == "Devis ACME" and pub[0]["type"] == "send_devis"
+    # La version interne conserve bien le payload (pour l'execution).
+    assert "payload" in ap.lister()[0]
+
+
 def test_rejeter_retire(ap):
     aid = ap.ajouter({"type": "send_devis", "resume": "x", "payload": {}})
     assert ap.rejeter(aid) is True
