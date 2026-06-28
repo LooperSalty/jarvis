@@ -44,6 +44,7 @@ Notes:
 - **MCP connectors**: plug Model Context Protocol (stdio) servers via the dashboard, their tools become usable by the agent
 - **OpenClaw bridge**: link Jarvis to your local [OpenClaw](https://docs.openclaw.ai) agent — *"ask openclaw to summarize my whatsapp messages"* (spoken answer), *"send to openclaw..."* (background task, reply on your messengers), *"openclaw status"*. Config: `OPENCLAW_TOKEN` / `OPENCLAW_HOOKS_TOKEN` in the dashboard
 - **Skills**: drop a `.py` into `jarvis_skills/` (template in the folder's README), Jarvis loads it by itself — even next to the `.exe`
+- **Operator (AI operator)**: an operational assistant with its own dashboard tab. **Triages your mailbox** automatically (classify / label / archive) and **reports** what it did; **manages appointments and your calendar** (*"book a meeting Tuesday 2pm"*); **listens to a meeting** (*"listen to the meeting"* / *"stop listening"*, or import an audio file) then produces minutes; **generates PDF quotes** (flexible model: services/materials/products, multi-rate VAT) **emailed after your "yes / no" approval**; **runs synthesized internet research**. **No email or quote is ever sent without your explicit approval.** Set your company details (for quotes) and autonomy level under *Operator → Settings*. Requires Google OAuth (Gmail/Calendar) — a re-consent is requested on first launch (`gmail.modify` scope). PDF via `fpdf2` (optional), transcription via faster-whisper (optional).
 
 ## Getting started (developer)
 
