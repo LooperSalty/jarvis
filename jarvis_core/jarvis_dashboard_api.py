@@ -91,6 +91,15 @@ except Exception as e:
     print(f"[DASHBOARD] Module triggers indisponible : {e}")
 
 try:
+    from jarvis_actions import operator as operator_mod
+    from jarvis_actions.operator import report as op_report, approvals as op_approvals
+except Exception as e:
+    operator_mod = None
+    op_report = None
+    op_approvals = None
+    print(f"[DASHBOARD] Module operator indisponible : {e}")
+
+try:
     import jarvis_secrets
 except Exception as e:
     jarvis_secrets = None
@@ -1963,6 +1972,45 @@ async def _h_skills_sh_add(data: dict) -> dict:
 
 
 # ==========================================
+# OPERATOR (tri mail, RDV, reunion, devis, recherche)
+# ==========================================
+async def _h_operator_init(data: dict) -> dict:
+    """Etat initial de l'onglet Operator : file d'approbation + activite recente."""
+    if op_approvals is None or op_report is None:
+        return {"action": "dash_operator_state", "pending": [], "activity": [],
+                "error": "Module operator indisponible"}
+    try:
+        return {"action": "dash_operator_state",
+                "pending": op_approvals.lister(),
+                "activity": op_report.derniers(50)}
+    except Exception as e:
+        return {"action": "dash_operator_state", "pending": [], "activity": [], "error": str(e)}
+
+
+async def _h_operator_confirm(data: dict) -> dict:
+    """Valide une action en attente (devis/email) -> execution via la facade operator."""
+    if operator_mod is None or op_approvals is None:
+        return {"action": "dash_operator_pending", "pending": [], "ok": False,
+                "message": "Module operator indisponible"}
+    aid = str(data.get("id", "") or "")
+    try:
+        msg, ok = await operator_mod.confirmer_depuis_dashboard(aid)
+    except Exception as e:
+        msg, ok = f"Erreur : {e}", False
+    return {"action": "dash_operator_pending", "pending": op_approvals.lister(),
+            "ok": bool(ok), "message": msg}
+
+
+async def _h_operator_reject(data: dict) -> dict:
+    """Rejette une action en attente."""
+    if op_approvals is None:
+        return {"action": "dash_operator_pending", "pending": [], "ok": False}
+    aid = str(data.get("id", "") or "")
+    ok = op_approvals.rejeter(aid)
+    return {"action": "dash_operator_pending", "pending": op_approvals.lister(), "ok": bool(ok)}
+
+
+# ==========================================
 # DISPATCH
 # ==========================================
 _HANDLERS = {
@@ -2013,6 +2061,9 @@ _HANDLERS = {
     "dash_cowork_delegate": _h_cowork_delegate,
     "dash_cowork_session": _h_cowork_session,
     "dash_cowork_chat": _h_cowork_chat,
+    "dash_operator_init": _h_operator_init,
+    "dash_operator_confirm": _h_operator_confirm,
+    "dash_operator_reject": _h_operator_reject,
 }
 
 

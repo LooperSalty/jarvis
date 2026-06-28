@@ -23,6 +23,7 @@ import { sectionPersonnalisation } from "./sections_personnalisation";
 import { sectionCowork } from "./sections_cowork";
 import { sectionCode } from "./sections_code";
 import { sectionCodeConfig } from "./sections_code_config";
+import { sectionOperator } from "./sections_operator";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -176,6 +177,7 @@ export const SECTIONS: readonly Section[] = [
   sectionProfile,
   sectionMemory,
   sectionChat,
+  sectionOperator,
   sectionAutomation,
   sectionConnectors,
   sectionCcSkills,
@@ -191,7 +193,7 @@ export const SECTIONS: readonly Section[] = [
  * Tout le reste est regroupe sous "Parametres" (sous-navigation) pour une UI
  * plus pro. main.ts construit la nav a partir de cette liste.
  */
-export const MAIN_SECTION_IDS: readonly string[] = ["chat", "cowork", "code", "automation"];
+export const MAIN_SECTION_IDS: readonly string[] = ["chat", "operator", "cowork", "code", "automation"];
 
 /** Section affichee par defaut a l'ouverture (premier onglet principal). */
 export const DEFAULT_SECTION_ID = "chat";
