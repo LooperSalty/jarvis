@@ -15,8 +15,10 @@ et reste defensive : aucune intention ne fait crasher la boucle vocale.
 from __future__ import annotations
 
 import asyncio
+import base64
+import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import (
@@ -544,3 +546,54 @@ async def dashboard_creer_devis(description: str = "") -> dict:
     """Prepare un devis (depuis la reunion courante ou la description) -> approbation."""
     msg, ok = await _creer_devis({"texte": description})
     return {"ok": ok, "message": msg, "pending": approvals.lister_public()}
+
+
+def _shaper_event(ev: dict) -> dict:
+    """Evenement Google Calendar brut -> vue cliente {titre, debut, lieu}."""
+    ev = ev if isinstance(ev, dict) else {}
+    start = ev.get("start") or {}
+    debut = start.get("dateTime") or start.get("date") or ""
+    return {
+        "titre": str(ev.get("summary", "") or "(sans titre)"),
+        "debut": str(debut),
+        "lieu": str(ev.get("location", "") or ""),
+    }
+
+
+async def dashboard_agenda(jours: int = 30) -> list[dict]:
+    """Prochains evenements (lecture seule) sur `jours` jours, mis en forme client."""
+    get_svc = _CTX.get("get_calendar_service")
+    if not get_svc:
+        return []
+    try:
+        service = await asyncio.to_thread(get_svc)
+        now = datetime.now(timezone.utc)
+        events = await asyncio.to_thread(
+            calendar_ops.lister, service, now.isoformat(), (now + timedelta(days=jours)).isoformat()
+        )
+    except Exception as e:
+        print(f"[OPERATOR] agenda : {e}")
+        return []
+    return [_shaper_event(e) for e in (events or [])][:20]
+
+
+def pdf_base64_pour(aid: str) -> str | None:
+    """Renvoie le PDF d'une approbation `send_devis` en base64, ou None.
+
+    SECURITE : le chemin n'est JAMAIS fourni par le client — il est resolu depuis
+    le payload (cote serveur) de l'approbation, dont l'id est le seul parametre.
+    On verifie en plus que c'est bien un .pdf existant.
+    """
+    item = approvals.get(aid)
+    if not item or item.get("type") != "send_devis":
+        return None
+    path = (item.get("payload") or {}).get("pdf_path")
+    if not path or not isinstance(path, str) or not path.lower().endswith(".pdf"):
+        return None
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except Exception:
+        return None

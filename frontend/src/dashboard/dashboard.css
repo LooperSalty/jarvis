@@ -1188,3 +1188,9 @@ select.input { appearance: auto; }
 .op-source { display: flex; flex-direction: column; padding: 6px 0; border-top: 1px solid var(--border); }
 .op-source-title { font-weight: 600; }
 .op-source-link { color: var(--accent-text); font-size: 0.85em; word-break: break-all; }
+.op-event { display: flex; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border); align-items: baseline; flex-wrap: wrap; }
+.op-event-date { color: var(--accent-text); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.op-event-title { font-weight: 600; }
+.op-event-loc { color: var(--text-dim); font-size: 0.85em; }
+.op-pdfbox { margin-top: 12px; }
+.op-pdf-frame { width: 100%; height: 420px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }

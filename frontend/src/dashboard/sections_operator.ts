@@ -51,9 +51,15 @@ export const sectionOperator: Section = {
       for (const raw of items) {
         const rec = asRecord(raw);
         const id = asString(rec.id);
-        const resume = asString(rec.resume) || asString(rec.type) || "Action";
+        const type = asString(rec.type);
+        const resume = asString(rec.resume) || type || "Action";
         const row = el("div", "op-item");
         row.appendChild(el("span", "op-item-label", resume));
+        if (type === "send_devis") {
+          const apercu = button("Aperçu PDF", "ghost");
+          apercu.addEventListener("click", () => ws.send({ type: "dash_operator_devis_pdf", id }));
+          row.appendChild(apercu);
+        }
         const valider = button("Valider", "primary");
         valider.addEventListener("click", () => ws.send({ type: "dash_operator_confirm", id }));
         const rejeter = button("Rejeter", "danger");
@@ -61,6 +67,29 @@ export const sectionOperator: Section = {
         row.appendChild(valider);
         row.appendChild(rejeter);
         pendingBody.appendChild(row);
+      }
+    };
+
+    // Zone de previsualisation PDF (in-app, hors liste pour ne pas etre effacee).
+    const pdfBox = el("div", "op-pdfbox");
+    let pdfUrl = "";
+    const showPdf = (b64: string): void => {
+      if (pdfUrl) { URL.revokeObjectURL(pdfUrl); pdfUrl = ""; }
+      pdfBox.replaceChildren();
+      if (!b64) {
+        pdfBox.appendChild(el("p", "muted", "PDF indisponible (génère le devis avec fpdf2 installé)."));
+        return;
+      }
+      try {
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        pdfUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+        const frame = el("iframe", "op-pdf-frame") as HTMLIFrameElement;
+        frame.src = pdfUrl;
+        pdfBox.appendChild(frame);
+      } catch {
+        pdfBox.appendChild(el("p", "muted", "Impossible d'afficher le PDF."));
       }
     };
 
@@ -99,6 +128,25 @@ export const sectionOperator: Section = {
     const setMeeting = (actif: boolean, transcript: string): void => {
       meetingStatus.textContent = actif ? "Écoute en cours…" : "Inactif.";
       if (transcript) transcriptBox.textContent = transcript;
+    };
+
+    // ── Agenda ───────────────────────────────────────────────────
+    const { root: pAgenda, body: agendaBody } = panel("Agenda", "Vos prochains rendez-vous (lecture seule).");
+    const renderAgenda = (events: unknown[]): void => {
+      agendaBody.replaceChildren();
+      if (!events.length) {
+        agendaBody.appendChild(el("p", "muted", "Aucun rendez-vous à venir."));
+        return;
+      }
+      for (const raw of events) {
+        const ev = asRecord(raw);
+        const line = el("div", "op-event");
+        line.appendChild(el("span", "op-event-date", asString(ev.debut)));
+        line.appendChild(el("span", "op-event-title", asString(ev.titre)));
+        const lieu = asString(ev.lieu);
+        if (lieu) line.appendChild(el("span", "op-event-loc", lieu));
+        agendaBody.appendChild(line);
+      }
     };
 
     // ── Recherche ────────────────────────────────────────────────
@@ -233,8 +281,10 @@ export const sectionOperator: Section = {
       }
     };
 
+    pPending.appendChild(pdfBox);
     root.appendChild(pPending);
     root.appendChild(pMeeting);
+    root.appendChild(pAgenda);
     root.appendChild(pSearch);
     root.appendChild(pSettings);
     root.appendChild(pActivity);
@@ -254,6 +304,8 @@ export const sectionOperator: Section = {
     offs.push(ws.on("operator_activity", () => ws.send({ type: "dash_operator_init" })));
     // Approbation poussee en direct (ex: brouillon cree par le tri mail de fond).
     offs.push(ws.on("operator_pending", (m) => renderPending(asArray(asRecord(m).pending))));
+    offs.push(ws.on("dash_operator_devis_pdf", (m) => showPdf(asString(asRecord(m).pdf_b64))));
+    offs.push(ws.on("dash_operator_agenda", (m) => renderAgenda(asArray(asRecord(m).events))));
     offs.push(ws.on("operator_transcript", (m) => {
       const chunk = asString(asRecord(m).chunk);
       if (!chunk) return;
@@ -298,10 +350,14 @@ export const sectionOperator: Section = {
       ws.send({ type: "dash_operator_init" });
       ws.send({ type: "dash_operator_settings_get" });
       ws.send({ type: "dash_operator_meeting", op: "state" });
+      ws.send({ type: "dash_operator_agenda" });
     };
     if (ws.isConnected()) demander();
     offs.push(ws.onStatus((c: boolean) => { if (c) demander(); }));
 
-    return () => { for (const off of offs) off(); };
+    return () => {
+      for (const off of offs) off();
+      if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+    };
   },
 };

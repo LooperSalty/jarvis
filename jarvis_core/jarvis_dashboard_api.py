@@ -2066,6 +2066,26 @@ async def _h_operator_devis(data: dict) -> dict:
             "ok": res.get("ok", False), "message": res.get("message", "")}
 
 
+async def _h_operator_agenda(data: dict) -> dict:
+    """Prochains evenements (lecture seule) pour le panneau Agenda."""
+    if operator_mod is None:
+        return {"action": "dash_operator_agenda", "events": []}
+    events = await operator_mod.dashboard_agenda()
+    return {"action": "dash_operator_agenda", "events": events}
+
+
+async def _h_operator_devis_pdf(data: dict) -> dict:
+    """Renvoie le PDF d'un devis en attente (base64) pour previsualisation in-app.
+
+    Le client ne fournit QUE l'id de l'approbation ; le chemin est resolu cote
+    serveur (pas de lecture de fichier arbitraire)."""
+    if operator_mod is None:
+        return {"action": "dash_operator_devis_pdf", "id": "", "pdf_b64": ""}
+    aid = str(data.get("id", "") or "")
+    b64 = await _en_executor(lambda: operator_mod.pdf_base64_pour(aid))
+    return {"action": "dash_operator_devis_pdf", "id": aid, "pdf_b64": b64 or ""}
+
+
 # ==========================================
 # DISPATCH
 # ==========================================
@@ -2125,6 +2145,8 @@ _HANDLERS = {
     "dash_operator_meeting": _h_operator_meeting,
     "dash_operator_research": _h_operator_research,
     "dash_operator_devis": _h_operator_devis,
+    "dash_operator_agenda": _h_operator_agenda,
+    "dash_operator_devis_pdf": _h_operator_devis_pdf,
 }
 
 
