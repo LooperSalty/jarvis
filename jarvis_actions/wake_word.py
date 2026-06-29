@@ -47,13 +47,19 @@ def _flag_actif() -> bool:
 
 
 def _normaliser(texte: str) -> str:
-    """Minuscule + suppression des accents (NFD) pour une comparaison robuste.
+    """Minuscule + suppression des accents (NFD) + ponctuation interne.
+
+    On retire aussi apostrophes/ponctuation (mais on GARDE les espaces) pour
+    matcher les transcriptions whisper qui scindent le mot-cle : "J'arvisent"
+    -> "jarvisent" (contient la variante "jarvi"). Les espaces sont conserves
+    pour eviter les faux positifs ("le jar vise tout" ne doit PAS matcher).
 
     Args:
-        texte: Chaine quelconque (peut contenir accents/majuscules).
+        texte: Chaine quelconque (peut contenir accents/majuscules/ponctuation).
 
     Returns:
-        Texte en minuscules sans diacritiques. Renvoie "" sur entree invalide.
+        Texte minuscule, sans diacritiques ni ponctuation, espaces conserves.
+        Renvoie "" sur entree invalide.
     """
     try:
         if not isinstance(texte, str):
@@ -61,8 +67,10 @@ def _normaliser(texte: str) -> str:
         decompose = unicodedata.normalize("NFD", texte)
         sans_accents = "".join(
             c for c in decompose if unicodedata.category(c) != "Mn"
-        )
-        return sans_accents.lower()
+        ).lower()
+        # Garde uniquement lettres + espaces : apostrophes, virgules, tirets...
+        # sont supprimes (collent les morceaux : "j'arvisent" -> "jarvisent").
+        return "".join(c if (c.isalpha() or c.isspace()) else "" for c in sans_accents)
     except Exception:
         # Jamais d'exception qui remonte : on degrade silencieusement.
         return ""

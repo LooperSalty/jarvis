@@ -29,8 +29,9 @@ def test_disponible_local_false_sans_flag(voice_stt):
 def test_backend_google_meme_avec_flag_sans_lib(voice_stt, monkeypatch):
     """Flag actif mais faster-whisper absent -> repli 'google' (pas de crash)."""
     monkeypatch.setenv("JARVIS_STT_LOCAL", "1")
-    # Les caches sont remis a zero par la fixture ; le chargement du modele
-    # echouera (lib absente) et backend doit retomber sur google.
+    # On force l'indisponibilite du modele (simule lib absente) pour rendre le
+    # test DETERMINISTE, que faster-whisper soit installe ou non dans l'env.
+    monkeypatch.setattr(voice_stt, "_charger_modele", lambda: None)
     assert voice_stt.backend() == "google"
 
 

@@ -4488,12 +4488,13 @@ def ecouter():
                 continue
 
             # Detection texte du wake word. Par defaut : substring "jarvis"
-            # (comportement historique strictement inchange). Quand le flag
-            # JARVIS_WAKE_LOCAL est on, on ajoute le repli mot_present (insensible
-            # casse/accents, gere les variantes de transcription whisper). Gate sur
-            # WAKE_LOCAL pour ne RIEN changer quand le flag est OFF.
+            # (comportement historique strictement inchange). Repli flou
+            # mot_present (insensible casse/accents/ponctuation, gere les
+            # variantes de transcription) active si WAKE_LOCAL OU STT_LOCAL :
+            # whisper scinde souvent le mot ("J'arvisent") et le substring brut
+            # echouerait alors -> cause directe de "des fois il ne repond pas".
             wake_dans_texte = WAKE_WORD in texte
-            if WAKE_LOCAL and not wake_dans_texte and wake_word is not None:
+            if (WAKE_LOCAL or STT_LOCAL) and not wake_dans_texte and wake_word is not None:
                 try:
                     wake_dans_texte = wake_word.mot_present(texte)
                 except Exception as e:
