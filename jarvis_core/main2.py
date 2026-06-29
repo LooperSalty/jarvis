@@ -764,6 +764,44 @@ except Exception as e:
     print(f"[PROFIL] Module jarvis_profile desactive : {e}")
     jarvis_profile = None
 
+def _redemarrer_jarvis() -> bool:
+    """Relance Jarvis (l'exe en mode frozen, python sinon) puis tue le process actuel.
+
+    Un relanceur DETACHE attend ~2s que les ports (8765/5173/8080) se liberent
+    (sinon conflit de bind au redemarrage), puis demarre la nouvelle instance.
+    Le process courant est ensuite tue (os._exit) apres un court delai laissant la
+    reponse WebSocket partir. Appele par le bouton 'Redemarrer' de la barre sticky
+    du dashboard (handler dash_restart)."""
+    try:
+        if getattr(sys, "frozen", False):
+            cible = f'"{sys.executable}"'  # ...\Jarvis.exe (onedir : _internal a cote)
+        else:
+            cible = f'"{sys.executable}" "{os.path.abspath(sys.argv[0])}"'  # python main2.py
+        cwd = os.getcwd()
+        if os.name == "nt":
+            DETACHED_PROCESS = 0x00000008
+            CREATE_NO_WINDOW = 0x08000000
+            # ping (et non timeout) pour le delai : timeout exige une console/stdin,
+            # absente d'un process detache sans fenetre. 'start ""' relance l'exe
+            # detache du cmd pour que celui-ci puisse se fermer.
+            subprocess.Popen(
+                ["cmd", "/c", f'ping 127.0.0.1 -n 3 >nul & start "" {cible}'],
+                cwd=cwd, close_fds=True,
+                creationflags=DETACHED_PROCESS | CREATE_NO_WINDOW,
+            )
+        else:
+            subprocess.Popen(
+                f"sleep 2; {cible}", cwd=cwd, shell=True,
+                start_new_session=True, close_fds=True,
+            )
+    except Exception as e:
+        print(f"[RESTART] Echec planification du relanceur : {e}")
+        return False
+    print("[RESTART] Redemarrage planifie : arret du process courant dans 1s.")
+    threading.Timer(1.0, lambda: os._exit(0)).start()
+    return True
+
+
 try:
     import jarvis_dashboard_api
     jarvis_dashboard_api.init_api({
@@ -789,6 +827,8 @@ try:
         # Service Google Drive pour la sauvegarde de la memoire (section Memoire).
         # Liaison tardive ; peut declencher l'autorisation OAuth au premier appel.
         "get_drive_service": lambda: get_drive_service(),
+        # Redemarrage du process (bouton 'Redemarrer' de la barre sticky du dashboard).
+        "redemarrer": lambda: _redemarrer_jarvis(),
     })
 except Exception as e:
     print(f"[DASHBOARD] Module jarvis_dashboard_api desactive : {e}")

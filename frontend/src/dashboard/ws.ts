@@ -21,6 +21,9 @@ let connected = false;
 
 const handlers = new Map<string, Set<WsHandler>>();
 const statusHandlers = new Set<StatusHandler>();
+// Observateurs appeles pour CHAQUE message (quel que soit son "action").
+// Sert a la barre globale de redemarrage (detecte restart_required partout).
+const globalHandlers = new Set<WsHandler>();
 
 /** Notifie les abonnes au statut uniquement quand l'etat change. */
 function notifyStatus(ok: boolean): void {
@@ -42,6 +45,14 @@ function dispatch(raw: string): void {
     msg = JSON.parse(raw) as WsMessage;
   } catch {
     return; // message malforme : on ignore sans crasher
+  }
+  // Observateurs globaux : appeles pour TOUT message (barre de redemarrage...).
+  for (const cb of [...globalHandlers]) {
+    try {
+      cb(msg);
+    } catch (err) {
+      console.error("[WS] observateur global en erreur", err);
+    }
   }
   const action = typeof msg.action === "string" ? msg.action : "";
   if (!action) return;
@@ -117,6 +128,14 @@ export function on(action: string, cb: WsHandler): () => void {
   set.add(cb);
   return () => {
     set.delete(cb);
+  };
+}
+
+/** Abonne un observateur appele pour CHAQUE message recu. Retourne le desabonnement. */
+export function onAny(cb: WsHandler): () => void {
+  globalHandlers.add(cb);
+  return () => {
+    globalHandlers.delete(cb);
   };
 }
 

@@ -2086,10 +2086,23 @@ async def _h_operator_devis_pdf(data: dict) -> dict:
     return {"action": "dash_operator_devis_pdf", "id": aid, "pdf_b64": b64 or ""}
 
 
+async def _h_restart(data: dict) -> dict:
+    """Redemarre le process Jarvis (bouton 'Redemarrer' de la barre sticky).
+
+    On repond AVANT que le process ne meure : le relanceur attend ~2s, donc la
+    reponse part a temps et le client affiche 'Redemarrage en cours...' puis se
+    reconnecte automatiquement a la nouvelle instance. _appel_ctx delegue au
+    callable 'redemarrer' injecte par main2 (gere frozen .exe et dev python)."""
+    ok = bool(_appel_ctx("redemarrer", defaut=False))
+    msg = "Redemarrage en cours..." if ok else "Redemarrage indisponible sur cette instance."
+    return {"action": "dash_restart", "ok": ok, "message": msg}
+
+
 # ==========================================
 # DISPATCH
 # ==========================================
 _HANDLERS = {
+    "dash_restart": _h_restart,
     "dash_get_overview": _h_overview,
     "dash_set_env": _h_set_env,
     "dash_set_user_name": _h_set_user_name,

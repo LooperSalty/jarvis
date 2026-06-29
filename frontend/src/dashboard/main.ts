@@ -14,9 +14,11 @@ import {
   type Section,
   type Cleanup,
   el,
+  button,
   clearChildren,
   showToast,
   asString,
+  asRecord,
 } from "./sections";
 import { applyDashboardTheme, lireConfigLocale, watchSystemTheme } from "../ui_theme";
 import "./dashboard.css";
@@ -226,6 +228,65 @@ ws.onStatus((ok) => {
 ws.on("dash_error", (msg) => {
   showToast(asString(msg.error, "Erreur de configuration."), false);
 });
+
+// ── Barre globale de redemarrage (sticky : suit le scroll) ────────────────────
+// Quand une modif du configurateur pose restart_required, une barre FIXE (donc
+// visible quel que soit le scroll, sur toutes les sections) apparait :
+//   "Redemarrer" -> relance le process (handler dash_restart) ; a la reconnexion
+//                   la nouvelle instance n'a plus restart_required -> barre masquee.
+//   "Plus tard"  -> masque la barre (les modifs restent enregistrees dans .env).
+{
+  const bar = el("div", "restart-bar hidden");
+  const TXT_DEFAUT = "Un redémarrage est requis pour appliquer les changements.";
+  const barMsg = el("span", "restart-bar-msg", TXT_DEFAUT);
+  const btnRestart = button("Redémarrer", "primary");
+  const btnLater = button("Plus tard", "ghost");
+  const actions = el("div", "restart-bar-actions");
+  actions.appendChild(btnRestart);
+  actions.appendChild(btnLater);
+  bar.appendChild(barMsg);
+  bar.appendChild(actions);
+  document.body.appendChild(bar);
+
+  let dismissed = false;
+  let restarting = false;
+  // Actions qui POSENT restart_required (vraie modif) -> on re-signale meme si
+  // l'utilisateur avait masque la barre. dash_overview ne fait que la reporter.
+  const SAVE_ACTIONS = new Set(["dash_env_saved", "dash_model_select"]);
+
+  btnRestart.addEventListener("click", () => {
+    restarting = true;
+    btnRestart.disabled = true;
+    btnLater.disabled = true;
+    barMsg.textContent = "Redémarrage en cours… reconnexion automatique.";
+    ws.send({ type: "dash_restart" });
+  });
+  btnLater.addEventListener("click", () => {
+    dismissed = true;
+    bar.classList.add("hidden");
+  });
+
+  ws.onAny((m) => {
+    const rec = asRecord(m);
+    if (rec.restart_required !== true) return;
+    const action = asString(rec.action);
+    if (action === "dash_restart") return; // sa propre reponse
+    if (SAVE_ACTIONS.has(action)) dismissed = false;
+    if (!dismissed && !restarting) bar.classList.remove("hidden");
+  });
+
+  ws.onStatus((connected) => {
+    if (connected && restarting) {
+      // Nouvelle instance relancee : on remet la barre a zero.
+      restarting = false;
+      dismissed = false;
+      btnRestart.disabled = false;
+      btnLater.disabled = false;
+      barMsg.textContent = TXT_DEFAUT;
+      bar.classList.add("hidden");
+    }
+  });
+}
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
