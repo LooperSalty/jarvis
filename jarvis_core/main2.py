@@ -1186,6 +1186,34 @@ def _contexte_temporel() -> str:
     )
 
 
+_METEO_RE = re.compile(
+    r"\b(m[ée]t[ée]o|quel\s+temps|temps\s+qu'?il\s+fait|il\s+fait\s+quel\s+temps|"
+    r"fait[- ]il\s+(?:beau|chaud|froid|dehors|gris|mauvais)|va[- ]t[- ]il\s+pleuvoir|"
+    r"il\s+pleut|il\s+va\s+pleuvoir)\b"
+)
+# Capture une ville apres 'a/à/sur/pour' : un mot (pas d'espaces pour eviter
+# d'avaler 'aujourd'hui'). Best-effort ; defaut = VILLE_PAR_DEFAUT si absent.
+_METEO_VILLE_RE = re.compile(r"\b(?:[àa]|sur|pour)\s+([a-zàâäéèêëïîôöùûüç'-]{2,30})")
+_METEO_MOTS_TEMPS = {"aujourd'hui", "maintenant", "demain", "dehors", "present", "matin", "soir", "midi"}
+
+
+def _intention_meteo(txt: str) -> tuple[bool, str | None]:
+    """Detecte une demande meteo + ville optionnelle. PUR, sans effet de bord.
+
+    Retourne (True, ville|None) si c'est une demande meteo (ville None = ville par
+    defaut), sinon (False, None). Permet de court-circuiter le LLM : la meteo est
+    alors instantanee (Open-Meteo) et ne depend pas du petit modele local.
+    """
+    t = (txt or "").strip().lower()
+    if not _METEO_RE.search(t):
+        return (False, None)
+    m = _METEO_VILLE_RE.search(t)
+    ville = m.group(1).strip("' -") if m else None
+    if ville in _METEO_MOTS_TEMPS:
+        ville = None
+    return (True, ville or None)
+
+
 def _reponse_date_heure(txt: str) -> str | None:
     """Reponse DETERMINISTE aux questions de date/heure. None sinon.
 
@@ -1345,6 +1373,38 @@ def _reindexer_rag_demarrage():
 
 if memory_rag is not None:
     threading.Thread(target=_reindexer_rag_demarrage, daemon=True).start()
+
+
+def _prechauffer_ollama():
+    """Charge le modele Ollama en RAM au demarrage (warmup) pour eviter le
+    cold-start de ~25-30s a la PREMIERE question (le 'moulinet'). Best-effort,
+    en thread daemon ; keep_alive='30m' garde le modele charge entre les questions."""
+    try:
+        time.sleep(3)  # laisse Ollama finir de demarrer s'il est lance au boot
+        modeles = _decouvrir_modeles_ollama()
+        if not modeles:
+            print("[OLLAMA] Prechauffage : aucun modele installe.")
+            return
+        modele = modeles[0]
+        print(f"[OLLAMA] Prechauffage de {modele} (chargement en RAM)...")
+        requests.post(
+            f"{OLLAMA_URL}/api/chat",
+            json={
+                "model": modele,
+                "messages": [{"role": "user", "content": "ok"}],
+                "stream": False,
+                "keep_alive": "30m",
+            },
+            timeout=120,
+        )
+        print(f"[OLLAMA] Prechauffage termine : {modele} pret (reponses rapides).")
+    except Exception as e:
+        print(f"[OLLAMA] Prechauffage ignore : {e}")
+
+
+# On prechauffe uniquement quand Ollama est le cerveau actif (mode local).
+if FORCE_OLLAMA:
+    threading.Thread(target=_prechauffer_ollama, daemon=True).start()
 
 is_listening = False
 is_speaking  = False
@@ -3300,6 +3360,15 @@ async def traiter_reponse_ia(texte_utilisateur, mobile_ws=None, repondre_vocal=T
         await _parler_et_restaurer(_dh)
         return
 
+    # 0bis) Meteo -> Open-Meteo DETERMINISTE, court-circuite le LLM (instantane et
+    # fiable : ne depend plus du petit modele local pour emettre le bon JSON, et
+    # evite le cold-start Ollama). L'appel reseau est offload (to_thread).
+    _meteo_ok, _meteo_ville = _intention_meteo(txt_l)
+    if _meteo_ok:
+        _res_meteo = await asyncio.to_thread(get_meteo_actuelle, _meteo_ville)
+        await _parler_et_restaurer(_res_meteo)
+        return
+
     # 1) "stop la musique / video" -> PLAY/PAUSE media key globale (pas de focus requis)
     if re.search(r"\b(stop|arr[êe]te|coupe|pause)\b.*\b(musique|vid[ée]o|playlist|chanson|son|lecture)\b", txt_l):
         _send_media_key(0xB3)  # VK_MEDIA_PLAY_PAUSE — marche meme sans focus
@@ -4255,7 +4324,10 @@ def ecouter():
     r   = sr.Recognizer()
     mic = sr.Microphone()
 
-    r.pause_threshold        = 0.6
+    # pause_threshold releve (0.6 -> 1.0) : on attend 1s de silence avant de
+    # cloturer la phrase, pour capter une phrase ENTIERE ("quel temps fait-il
+    # aujourd'hui") au lieu de la fragmenter ("dis-moi" seul).
+    r.pause_threshold        = 1.0
     r.non_speaking_duration  = 0.5
     r.energy_threshold       = 300
     r.dynamic_energy_threshold = True
