@@ -225,6 +225,13 @@ VILLE_PAR_DEFAUT = "Amilly"
 LAT_PAR_DEFAUT   = 47.9742
 LON_PAR_DEFAUT   = 2.7708
 
+# Geolocalisation auto (OPT-IN, "si on l'autorise") : quand JARVIS_GEOLOC=1, la
+# meteo sans ville explicite utilise la position reelle (detectee par IP via
+# ip-api.com, gratuit, sans cle) au lieu de la ville par defaut codee en dur.
+# Desactive par defaut -> aucun appel reseau de localisation, comportement inchange.
+GEOLOC_AUTO = os.getenv("JARVIS_GEOLOC", "0").strip().lower() in ("1", "true", "oui", "on", "auto")
+_GEOLOC_CACHE = None  # tuple (lat, lon, ville) memorise apres la 1ere detection reussie
+
 CLAP_THRESHOLD = 1200
 VIDEO_LANCEE   = False
 MODE_IRON_MAN = False 
@@ -1798,6 +1805,31 @@ CODES_METEO = {
     95: "orage", 96: "orage avec grele", 99: "orage violent avec grele",
 }
 
+def _localisation_auto():
+    """Position reelle via IP (OPT-IN, JARVIS_GEOLOC=1). Retourne (lat, lon, ville)
+    ou None. Resultat memorise (_GEOLOC_CACHE) : une seule requete reseau par run.
+    Best-effort : tout echec -> None (repli sur la ville par defaut)."""
+    global _GEOLOC_CACHE
+    if not GEOLOC_AUTO:
+        return None
+    if _GEOLOC_CACHE is not None:
+        return _GEOLOC_CACHE
+    try:
+        r = requests.get(
+            "http://ip-api.com/json/",
+            params={"fields": "status,city,lat,lon"},
+            timeout=5,
+        )
+        d = r.json()
+        if d.get("status") == "success" and d.get("lat") is not None:
+            _GEOLOC_CACHE = (d["lat"], d["lon"], d.get("city") or VILLE_PAR_DEFAUT)
+            print(f"[GEOLOC] Position detectee (IP) : {_GEOLOC_CACHE[2]}")
+            return _GEOLOC_CACHE
+    except Exception as e:
+        print(f"[GEOLOC] Detection impossible : {e}")
+    return None
+
+
 def geocoder_ville(ville):
     try:
         r = requests.get(
@@ -1815,11 +1847,17 @@ def geocoder_ville(ville):
 
 def get_meteo_actuelle(ville=None):
     try:
-        nom_ville = ville or VILLE_PAR_DEFAUT
-        lat, lon, nom_affiche, pays = geocoder_ville(nom_ville)
-        if lat is None:
-            lat, lon = LAT_PAR_DEFAUT, LON_PAR_DEFAUT
-            nom_affiche = VILLE_PAR_DEFAUT
+        # Sans ville explicite + geoloc autorisee -> position reelle (IP),
+        # sinon geocodage de la ville demandee / ville par defaut.
+        _geo = _localisation_auto() if not ville else None
+        if _geo:
+            lat, lon, nom_affiche = _geo
+        else:
+            nom_ville = ville or VILLE_PAR_DEFAUT
+            lat, lon, nom_affiche, pays = geocoder_ville(nom_ville)
+            if lat is None:
+                lat, lon = LAT_PAR_DEFAUT, LON_PAR_DEFAUT
+                nom_affiche = VILLE_PAR_DEFAUT
         r = requests.get(
             "https://api.open-meteo.com/v1/forecast",
             params={
@@ -1848,10 +1886,14 @@ def get_meteo_actuelle(ville=None):
 
 def get_alertes_meteo(ville=None):
     try:
-        nom_ville = ville or VILLE_PAR_DEFAUT
-        lat, lon, nom_affiche, _ = geocoder_ville(nom_ville)
-        if lat is None:
-            lat, lon, nom_affiche = LAT_PAR_DEFAUT, LON_PAR_DEFAUT, VILLE_PAR_DEFAUT
+        _geo = _localisation_auto() if not ville else None
+        if _geo:
+            lat, lon, nom_affiche = _geo
+        else:
+            nom_ville = ville or VILLE_PAR_DEFAUT
+            lat, lon, nom_affiche, _ = geocoder_ville(nom_ville)
+            if lat is None:
+                lat, lon, nom_affiche = LAT_PAR_DEFAUT, LON_PAR_DEFAUT, VILLE_PAR_DEFAUT
         r = requests.get(
             "https://api.open-meteo.com/v1/forecast",
             params={
@@ -2441,6 +2483,7 @@ async def _ollama_chat_simple(prompt: str) -> str:
                         "model": modele,
                         "messages": [{"role": "user", "content": prompt}],
                         "stream": False,
+                        "keep_alive": "30m",
                     },
                     timeout=60,
                 )
@@ -2666,7 +2709,8 @@ async def demander_ollama_stream(texte):
                         "model": model_name,
                         "messages": messages,
                         "stream": True,
-                        "options": {"temperature": 0.7, "num_predict": 512},
+                        "keep_alive": "30m",
+                        "options": {"temperature": 0.7, "num_predict": 256},
                     },
                     stream=True,
                     timeout=180,
@@ -2844,7 +2888,8 @@ async def demander_ollama(texte):
                             "model": model_name,
                             "messages": messages,
                             "stream": False,
-                            "options": {"temperature": 0.7, "num_predict": 512},
+                            "keep_alive": "30m",
+                            "options": {"temperature": 0.7, "num_predict": 256},
                         },
                         timeout=120,
                     ),
