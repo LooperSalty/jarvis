@@ -68,3 +68,23 @@ def test_pdf_base64_pour_non_pdf_refuse(op, tmp_path):
     aid = op.approvals.ajouter({"type": "send_devis", "resume": "x",
                                 "payload": {"pdf_path": str(autre)}})
     assert op.pdf_base64_pour(aid) is None
+
+
+@pytest.mark.asyncio
+async def test_meeting_import_refuse_extension_non_audio(op, tmp_path, monkeypatch):
+    # Defense en profondeur : un chemin non-audio est refuse SANS appeler whisper.
+    appels = []
+    monkeypatch.setattr(op.meeting, "transcrire_fichier", lambda p: appels.append(p) or "")
+    secret = tmp_path / "passwords.txt"
+    secret.write_text("x")
+    res = await op.dashboard_meeting_import(str(secret))
+    assert res["ok"] is False and "audio" in res["message"].lower()
+    assert appels == []  # whisper jamais appele
+
+
+@pytest.mark.asyncio
+async def test_meeting_import_accepte_audio(op, monkeypatch):
+    monkeypatch.setattr(op.meeting, "transcrire_fichier", lambda p: "bonjour ceci est un test")
+    monkeypatch.setattr(op.meeting, "definir_transcript", lambda t: None)
+    res = await op.dashboard_meeting_import("C:/tmp/reunion.mp3")
+    assert res["ok"] is True and "bonjour" in res["transcript"]

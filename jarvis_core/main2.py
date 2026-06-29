@@ -1060,14 +1060,30 @@ async def _diffuser_payload_ui(payload):
         await asyncio.gather(*[ws.send(message) for ws in cibles], return_exceptions=True)
 
 
+async def _diffuser_payload_loopback(payload):
+    """Diffuse un payload UNIQUEMENT aux clients loopback (machine locale).
+
+    Les flux Operator (operator_activity / operator_pending / operator_transcript)
+    portent des PII : emails clients, montants de devis, chemins de fichiers
+    LOCAUX, et surtout le transcript VERBATIM d'une reunion confidentielle. L'UI
+    Operator est exclusivement le dashboard loopback ; les clients LAN / mobile /
+    Tailscale appaires par token ne les consomment pas. Par moindre privilege on
+    ne les leur diffuse donc JAMAIS (contrairement a la config UI / volume / etat
+    de l'orbe qui, eux, sont legitimement diffuses a tous via _diffuser_payload_ui)."""
+    cibles = [ws for ws in _clients_diffusion() if _client_est_local(ws)]
+    if cibles and isinstance(payload, dict):
+        message = json.dumps(payload)
+        await asyncio.gather(*[ws.send(message) for ws in cibles], return_exceptions=True)
+
+
 def _operator_broadcast(payload):
-    """Diffuse un payload Operator (operator_activity / operator_pending / ...) a
-    tous les clients authentifies. Best-effort et THREAD-SAFE : planifie la
-    coroutine de diffusion sur l'event loop du serveur WS (_WS_LOOP), ce qui
-    permet de l'appeler depuis un thread (ex. mode reunion) comme depuis le loop."""
+    """Diffuse un payload Operator aux clients LOOPBACK uniquement. Best-effort et
+    THREAD-SAFE : planifie la coroutine sur l'event loop du serveur WS (_WS_LOOP),
+    ce qui permet de l'appeler depuis un thread (ex. mode reunion) comme depuis le
+    loop. Voir _diffuser_payload_loopback pour la justification (PII / confidentialite)."""
     try:
         if _WS_LOOP is not None:
-            asyncio.run_coroutine_threadsafe(_diffuser_payload_ui(payload), _WS_LOOP)
+            asyncio.run_coroutine_threadsafe(_diffuser_payload_loopback(payload), _WS_LOOP)
     except Exception:
         pass
 

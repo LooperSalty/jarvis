@@ -521,14 +521,25 @@ async def dashboard_meeting_stop() -> dict:
     return {"ok": ok, "message": msg, "actif": False, "transcript": transcript}
 
 
+_EXT_AUDIO = (".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".wma", ".opus", ".mp4", ".webm")
+
+
 async def dashboard_meeting_import(path: str) -> dict:
-    """Transcrit un fichier audio importe et le definit comme transcript courant."""
-    transcript = await asyncio.to_thread(meeting.transcrire_fichier, path)
+    """Transcrit un fichier audio importe et le definit comme transcript courant.
+
+    Defense en profondeur : on n'accepte qu'une extension audio connue (en plus du
+    gating loopback des dash_*), pour ne pas transmettre un chemin arbitraire au
+    decodeur a partir d'un message client."""
+    p = str(path or "").strip().strip('"').strip("'")
+    if not p or not p.lower().endswith(_EXT_AUDIO):
+        return {"ok": False, "message": "Format non supporte : fournis un fichier audio (mp3/wav/m4a/ogg...).",
+                "transcript": ""}
+    transcript = await asyncio.to_thread(meeting.transcrire_fichier, p)
     if not transcript.strip():
         return {"ok": False, "message": "Transcription vide (fichier introuvable ou Whisper absent).",
                 "transcript": ""}
     meeting.definir_transcript(transcript)
-    report.journaliser({"type": "reunion_importee", "detail": path})
+    report.journaliser({"type": "reunion_importee", "detail": os.path.basename(p)})
     return {"ok": True, "message": "Audio transcrit. Tu peux generer un devis depuis cette reunion.",
             "transcript": transcript}
 
