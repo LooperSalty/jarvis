@@ -37,6 +37,18 @@ def test_router_intentions(op, phrase, intent):
     assert res is not None and res[0] == intent
 
 
+@pytest.mark.parametrize("phrase", [
+    "t'as fait quoi avec ma boite mail",
+    "tu as fait quoi avec mes mails",
+    "qu'as-tu fait avec ma boîte mail",
+    "montre moi ton activité",
+    "montre ce que tu as fait",
+])
+def test_router_activity_show(op, phrase):
+    res = op._router(phrase, a_des_approbations=False)
+    assert res is not None and res[0] == "activity_show"
+
+
 def test_oui_non_ignores_sans_approbation(op):
     assert op._router("oui", a_des_approbations=False) is None
     assert op._router("non", a_des_approbations=False) is None

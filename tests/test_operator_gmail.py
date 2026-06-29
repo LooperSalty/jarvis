@@ -39,6 +39,16 @@ def test_parser_classif_priorite_invalide_normalisee(g):
     assert out["priorite"] == "normale"
 
 
+def test_parser_classif_inclut_raison(g):
+    out = g.parser_classif('{"categorie":"Facture","priorite":"haute","besoin_reponse":false,"raison":"EDF dans le sujet"}')
+    assert out["raison"] == "EDF dans le sujet"
+
+
+def test_parser_classif_raison_absente_defaut(g):
+    out = g.parser_classif('{"categorie":"Autre"}')
+    assert out["raison"] == ""
+
+
 def test_decider_action_regle_match(g):
     classif = {"categorie": "Facture", "besoin_reponse": False}
     regles = [{"si_contient": "facture", "label": "Factures", "archiver": True}]

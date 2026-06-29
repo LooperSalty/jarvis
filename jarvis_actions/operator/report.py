@@ -62,6 +62,34 @@ def journaliser(evenement: dict) -> dict:
     return ev
 
 
+def etape(donnees: dict) -> dict:
+    """Evenement RICHE d'activite en direct (operator_step) : c'est ce qui alimente
+    le flux visuel 'comme une video' (categorie + titre + detail + RAISON/pourquoi
+    + statut). Appende aussi une entree compacte au journal (pour le resume a la
+    demande / dash_operator_init). Diffuse uniquement aux clients loopback.
+
+    `categorie` : mail / rdv / devis / recherche / reunion / info.
+    `statut`    : ok / info / attente / erreur (pilote la couleur de la carte).
+    """
+    ev = {
+        "categorie": str(donnees.get("categorie", "info")),
+        "titre": str(donnees.get("titre", "")),
+        "detail": str(donnees.get("detail", "")),
+        "raison": str(donnees.get("raison", "")),
+        "statut": str(donnees.get("statut", "ok")),
+        "ts": datetime.now().isoformat(timespec="seconds"),
+    }
+    items = _charger()
+    items.append({"type": ev["categorie"], "detail": ev["titre"] or ev["detail"], "ts": ev["ts"]})
+    _ecrire(items)
+    if _broadcast:
+        try:
+            _broadcast({"action": "operator_step", "etape": ev})
+        except Exception:
+            pass
+    return ev
+
+
 def derniers(n: int = 50) -> list[dict]:
     """Les n evenements les plus recents (ordre chronologique)."""
     return _charger()[-n:]

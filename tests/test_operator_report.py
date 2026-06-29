@@ -47,3 +47,21 @@ def test_derniers_limite(rep):
         rep.journaliser({"type": "t", "detail": str(i)})
     assert len(rep.derniers(3)) == 3
     assert rep.derniers(3)[-1]["detail"] == "9"
+
+
+def test_etape_broadcast_operator_step(rep):
+    recu = []
+    rep.set_broadcast(lambda p: recu.append(p))
+    ev = rep.etape({"categorie": "mail", "titre": "Facture EDF",
+                    "detail": "edf@x -> archive", "raison": "expediteur EDF", "statut": "ok"})
+    assert ev["categorie"] == "mail" and ev["raison"] == "expediteur EDF" and ev["statut"] == "ok"
+    assert recu and recu[0]["action"] == "operator_step"
+    assert recu[0]["etape"]["titre"] == "Facture EDF"
+    # appende aussi une entree compacte au journal (pour le resume / init).
+    assert rep.derniers() and rep.derniers()[-1]["type"] == "mail"
+
+
+def test_etape_defauts(rep):
+    rep.set_broadcast(None)
+    ev = rep.etape({})
+    assert ev["categorie"] == "info" and ev["statut"] == "ok" and ev["raison"] == ""

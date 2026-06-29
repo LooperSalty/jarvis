@@ -1206,3 +1206,25 @@ select.input { appearance: auto; }
 .restart-bar.hidden { display: none; }
 .restart-bar-msg { color: var(--text); font-weight: 600; }
 .restart-bar-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+/* ── Flux en direct de l'Operator (cartes "video") ──────────────────────────── */
+.op-step {
+  background: var(--bg-1); border: 1px solid var(--border);
+  border-left: 3px solid var(--accent); border-radius: 10px; padding: 10px 12px;
+  animation: opstepin .35s ease;
+}
+@keyframes opstepin { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+.op-step-top { display: flex; align-items: center; gap: 8px; }
+.op-step-badge {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+  padding: 2px 8px; border-radius: 999px; background: var(--accent-dim);
+  color: var(--accent-text); font-weight: 700;
+}
+.op-step-ts { margin-left: auto; color: var(--text-dim); font-size: 12px; font-variant-numeric: tabular-nums; }
+.op-step-titre { font-weight: 600; margin-top: 4px; }
+.op-step-detail { color: var(--text-dim); }
+.op-step-raison { margin-top: 5px; font-style: italic; color: var(--text); opacity: .85; font-size: 13px; }
+.op-step-ok { border-left-color: #39d98a; }
+.op-step-info { border-left-color: var(--accent); }
+.op-step-attente { border-left-color: #f3b13b; }
+.op-step-erreur { border-left-color: #e35a6b; }

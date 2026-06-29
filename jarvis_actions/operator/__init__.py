@@ -28,6 +28,7 @@ from . import (
     devis,
     devis_pdf,
     gmail_ops,
+    live_view,
     meeting,
     report,
     research,
@@ -57,6 +58,9 @@ def init(ctx: dict[str, Any]) -> None:
 _REGLES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\b(trie|tri)\b.*\bmails?\b"), "email_triage"),
     (re.compile(r"\boccupe[- ]toi\b.*\bmails?\b"), "email_triage"),
+    # Montrer en direct ce que l'Operator a fait ("t'as fait quoi avec ma boite mail").
+    (re.compile(r"\b(t'?as|tu as|qu'?as[- ]tu)\b.*\bfait\b.*\b(mails?|bo[iî]te|activit)"), "activity_show"),
+    (re.compile(r"\bmontre(?:[- ]moi)?\b.*\b(activit[eé]|ce que tu as fait|bo[iî]te mail|ton tri)"), "activity_show"),
     (re.compile(r"\b(arr[eê]te d'?[eé]couter|stop r[eé]union|fini la r[eé]union)\b"), "meeting_stop"),
     (re.compile(r"\b[eé]coute(r)?\b.*\b(r[eé]union|conversation)\b"), "meeting_start"),
     (re.compile(r"\b(fais|pr[eé]pare|cr[eé]e|g[eé]n[eé]re)\b.*\bdevis\b"), "devis_new"),
@@ -131,6 +135,8 @@ async def _executer_intent(intent: str, params: dict) -> tuple[str | None, bool]
         return "Il n'y a rien a annuler.", True
     if intent == "email_triage":
         return await _trier_mails()
+    if intent == "activity_show":
+        return await _montrer_activite()
     if intent == "rdv_new":
         return await _creer_rdv(params)
     if intent == "meeting_start":
@@ -175,7 +181,8 @@ async def _executer_envoi_reponse(payload: dict) -> tuple[str, bool]:
     service = await asyncio.to_thread(get_svc)
     ok = await asyncio.to_thread(gmail_ops.envoyer_brouillon, service, draft_id)
     if ok:
-        report.journaliser({"type": "email_repondu", "detail": payload.get("sujet", "")})
+        report.etape({"categorie": "mail", "titre": "Reponse envoyee",
+                      "detail": payload.get("sujet", ""), "statut": "ok"})
         return "Reponse envoyee.", True
     return "Echec de l'envoi de la reponse.", False
 
@@ -202,7 +209,8 @@ async def _executer_envoi_devis(payload: dict) -> tuple[str, bool]:
         )
         ok = bool(draft) and await asyncio.to_thread(gmail_ops.envoyer_brouillon, service, draft)
     if ok:
-        report.journaliser({"type": "devis_envoye", "detail": f"{numero} -> {to}"})
+        report.etape({"categorie": "devis", "titre": f"Devis {numero} envoye",
+                      "detail": f"a {to}", "statut": "ok"})
         return f"Devis {numero} envoye a {to}.", True
     return "Echec de l'envoi du devis.", False
 
@@ -240,7 +248,12 @@ async def _trier_mails() -> tuple[str, bool]:
         return f"Impossible de me connecter a Gmail : {e}", False
     messages = await asyncio.to_thread(gmail_ops.lister_threads_non_lus, service, 10)
     if not messages:
+        report.etape({"categorie": "mail", "titre": "Boite mail : aucun mail non lu", "statut": "info"})
         return "Aucun mail non lu a trier.", True
+    # Etape de DEBUT : le flux visuel demarre ('je commence a regarder ta boite').
+    report.etape({"categorie": "mail",
+                  "titre": f"J'examine ta boite mail ({len(messages)} non lus)...",
+                  "statut": "info"})
     n = 0
     for msg in messages:
         ent = gmail_ops.extraire_entetes(msg)
@@ -251,13 +264,14 @@ async def _trier_mails() -> tuple[str, bool]:
         classif = {**gmail_ops.parser_classif(rep), "sujet": ent["sujet"]}
         action = gmail_ops.decider_action(classif, regles)
         msg_id = msg.get("id", "")
+        faites: list[str] = []  # ce que j'ai concretement fait sur ce mail
         if autonomie in _AUTO_LABEL:
-            if action["label"]:
-                if await asyncio.to_thread(gmail_ops.appliquer_label, service, msg_id, action["label"]):
-                    report.journaliser({"type": "email_etiquete", "detail": f"{ent['sujet']} -> {action['label']}"})
-            if action["archiver"]:
-                if await asyncio.to_thread(gmail_ops.archiver, service, msg_id):
-                    report.journaliser({"type": "email_archive", "detail": ent["sujet"]})
+            if action["label"] and await asyncio.to_thread(
+                gmail_ops.appliquer_label, service, msg_id, action["label"]
+            ):
+                faites.append(f"etiquete '{action['label']}'")
+            if action["archiver"] and await asyncio.to_thread(gmail_ops.archiver, service, msg_id):
+                faites.append("archive")
         if action["brouillon"] and autonomie in _AUTO_REPLY and demander_ia:
             try:
                 corps = await demander_ia(_prompt_reponse(ent))
@@ -268,20 +282,42 @@ async def _trier_mails() -> tuple[str, bool]:
                     gmail_ops.creer_brouillon, service, msg.get("threadId", ""),
                     ent["from"], f"Re: {ent['sujet']}", corps,
                 )
-                if autonomie == "autonomie_totale" and draft_id:
-                    if await asyncio.to_thread(gmail_ops.envoyer_brouillon, service, draft_id):
-                        report.journaliser({"type": "email_repondu", "detail": ent["sujet"]})
+                if autonomie == "autonomie_totale" and draft_id and await asyncio.to_thread(
+                    gmail_ops.envoyer_brouillon, service, draft_id
+                ):
+                    faites.append("repondu")
                 elif draft_id:
                     approvals.ajouter({
                         "type": "send_email_reply",
                         "resume": f"Reponse a {ent['from']} : {ent['sujet']}",
                         "payload": {"draft_id": draft_id, "sujet": ent["sujet"]},
                     })
-                    # Journalise pour que le dashboard rafraichisse (et garde une
-                    # trace) meme quand le tri tourne en tache de fond.
-                    report.journaliser({"type": "email_brouillon", "detail": ent["sujet"]})
+                    faites.append("brouillon de reponse a valider")
+        action_txt = ", ".join(faites) if faites else "classe (aucune action)"
+        # Etape RICHE par mail : QUOI (categorie + sujet), action faite, POURQUOI.
+        report.etape({
+            "categorie": "mail",
+            "titre": f"[{classif['categorie']}] {ent['sujet'] or '(sans sujet)'}",
+            "detail": f"{ent['from']} -> {action_txt}",
+            "raison": classif.get("raison", ""),
+            "statut": "ok",
+        })
         n += 1
+    report.etape({"categorie": "mail", "titre": f"Tri termine : {n} mail(s) traite(s)", "statut": "info"})
     return report.resume_textuel(depuis=depuis), True
+
+
+async def _montrer_activite() -> tuple[str, bool]:
+    """Ouvre la vue live (popup temps reel) ET parle un resume de l'activite.
+
+    Repond a "t'as fait quoi avec ma boite mail" : la popup montre VISUELLEMENT le
+    flux (cartes par mail : categorie, action, pourquoi) et se met a jour en direct
+    si l'Operator travaille encore."""
+    try:
+        await asyncio.to_thread(live_view.ouvrir)
+    except Exception as e:
+        print(f"[OPERATOR] Ouverture vue live echouee : {e}")
+    return report.resume_textuel(), True
 
 
 async def demarrer_planificateur() -> None:
@@ -332,7 +368,8 @@ async def _creer_rdv(params: dict) -> tuple[str, bool]:
     if ev:
         titre = payload.get("titre", "rendez-vous")
         debut = payload.get("debut_iso", "")
-        report.journaliser({"type": "rdv_cree", "detail": f"{titre} {debut}"})
+        report.etape({"categorie": "rdv", "titre": f"RDV : {titre}",
+                      "detail": debut, "statut": "ok"})
         return f"C'est note : {titre} le {debut}.", True
     return "Je n'ai pas pu creer le rendez-vous dans l'agenda.", False
 
@@ -346,7 +383,7 @@ async def _meeting_start() -> tuple[str, bool]:
         return "J'ecoute deja la reunion.", True
     ok = meeting.demarrer(_CTX.get("broadcast_ws"))
     if ok:
-        report.journaliser({"type": "reunion_demarree", "detail": ""})
+        report.etape({"categorie": "reunion", "titre": "Ecoute de la reunion demarree", "statut": "info"})
         return "J'ecoute la reunion. Dis 'arrete d'ecouter' quand c'est fini.", True
     return "Je ne peux pas ecouter : micro ou reconnaissance vocale indisponible.", False
 
@@ -357,7 +394,8 @@ async def _meeting_stop() -> tuple[str, bool]:
         return "Reunion terminee, mais je n'ai rien capte.", True
     demander_ia = _CTX.get("demander_ia")
     resume = await meeting.resumer(transcript, demander_ia) if demander_ia else ""
-    report.journaliser({"type": "reunion_terminee", "detail": (resume[:200] if resume else "transcript capte")})
+    report.etape({"categorie": "reunion", "titre": "Reunion terminee",
+                  "detail": (resume[:200] if resume else "transcript capte"), "statut": "info"})
     base = "Reunion terminee. "
     if resume:
         base += resume + " "
@@ -394,7 +432,8 @@ async def _creer_devis(params: dict) -> tuple[str, bool]:
         "payload": {"client_email": client_email, "pdf_path": pdf_path,
                     "numero": numero, "devis": d},
     })
-    report.journaliser({"type": "devis_prepare", "detail": resume})
+    report.etape({"categorie": "devis", "titre": resume,
+                  "detail": "en attente de ta validation", "statut": "attente"})
     avert = "" if client_email else " (email du client manquant : complete-le dans le dashboard)"
     avert_pdf = "" if pdf_path else " Le PDF n'a pas pu etre genere (fpdf2 absent)."
     return f"J'ai prepare le {resume}. Dis 'oui' pour l'envoyer.{avert}{avert_pdf}", True
@@ -426,7 +465,7 @@ async def _rechercher(params: dict) -> tuple[str, bool]:
     res = await research.rechercher(query, demander_ia)
     resume = (res.get("resume") or "").strip() or "Je n'ai rien trouve de concluant."
     sources = res.get("sources", [])
-    report.journaliser({"type": "recherche", "detail": query[:120]})
+    report.etape({"categorie": "recherche", "titre": f"Recherche : {query[:80]}", "statut": "ok"})
     show = _CTX.get("show_content")
     if show and sources:
         contenu = resume + "\n\nSources :\n" + "\n".join(
@@ -539,7 +578,7 @@ async def dashboard_meeting_import(path: str) -> dict:
         return {"ok": False, "message": "Transcription vide (fichier introuvable ou Whisper absent).",
                 "transcript": ""}
     meeting.definir_transcript(transcript)
-    report.journaliser({"type": "reunion_importee", "detail": os.path.basename(p)})
+    report.etape({"categorie": "reunion", "titre": f"Audio importe : {os.path.basename(p)}", "statut": "info"})
     return {"ok": True, "message": "Audio transcrit. Tu peux generer un devis depuis cette reunion.",
             "transcript": transcript}
 
@@ -549,7 +588,7 @@ async def dashboard_research(query: str) -> dict:
     if not demander_ia:
         return {"resume": "Recherche indisponible (IA non configuree).", "sources": []}
     res = await research.rechercher(_nettoyer_requete(query), demander_ia)
-    report.journaliser({"type": "recherche", "detail": (query or "")[:120]})
+    report.etape({"categorie": "recherche", "titre": f"Recherche : {(query or '')[:80]}", "statut": "ok"})
     return res
 
 

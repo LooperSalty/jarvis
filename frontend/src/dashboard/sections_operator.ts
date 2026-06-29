@@ -37,6 +37,35 @@ export const sectionOperator: Section = {
   mount(root: HTMLElement) {
     const offs: Array<() => void> = [];
 
+    // ── Flux en direct (temps reel, "comme une video") ───────────
+    const { root: pFlux, body: fluxBody } = panel(
+      "Flux en direct",
+      "Ce que l'Operator fait en ce moment (tri mail, RDV, devis, recherche) — quoi, quelle action, et pourquoi."
+    );
+    let fluxEmpty: HTMLElement | null = el("p", "muted", "En attente d'activité…");
+    fluxBody.appendChild(fluxEmpty);
+    let fluxSeeded = false;
+    const renderStep = (raw: unknown): void => {
+      const e = asRecord(raw);
+      if (!Object.keys(e).length) return;
+      if (fluxEmpty) { fluxEmpty.remove(); fluxEmpty = null; }
+      const statut = asString(e.statut) || "info";
+      const cat = asString(e.categorie) || asString(e.type) || "info";
+      const card = el("div", `op-step op-step-${statut}`);
+      const top = el("div", "op-step-top");
+      top.appendChild(el("span", "op-step-badge", cat));
+      top.appendChild(el("span", "op-step-ts", asString(e.ts)));
+      card.appendChild(top);
+      const titre = asString(e.titre) || asString(e.detail);
+      card.appendChild(el("div", "op-step-titre", titre));
+      const detail = asString(e.detail);
+      if (detail && asString(e.titre)) card.appendChild(el("div", "op-step-detail", detail));
+      const raison = asString(e.raison);
+      if (raison) card.appendChild(el("div", "op-step-raison", "↳ " + raison));
+      fluxBody.insertBefore(card, fluxBody.firstChild);
+      while (fluxBody.children.length > 60) fluxBody.removeChild(fluxBody.lastChild as Node);
+    };
+
     // ── A valider ────────────────────────────────────────────────
     const { root: pPending, body: pendingBody } = panel(
       "À valider",
@@ -282,6 +311,7 @@ export const sectionOperator: Section = {
     };
 
     pPending.appendChild(pdfBox);
+    root.appendChild(pFlux);
     root.appendChild(pPending);
     root.appendChild(pMeeting);
     root.appendChild(pAgenda);
@@ -294,6 +324,11 @@ export const sectionOperator: Section = {
       const r = asRecord(m);
       renderPending(asArray(r.pending));
       renderActivity(asArray(r.activity));
+      // Amorce le flux UNE fois avec l'historique (les cartes live arrivent ensuite).
+      if (!fluxSeeded) {
+        for (const a of asArray(r.activity)) renderStep(a);
+        fluxSeeded = true;
+      }
     }));
     offs.push(ws.on("dash_operator_pending", (m) => {
       const r = asRecord(m);
@@ -301,7 +336,12 @@ export const sectionOperator: Section = {
       const message = asString(r.message);
       if (message) showToast(message, asBool(r.ok));
     }));
-    offs.push(ws.on("operator_activity", () => ws.send({ type: "dash_operator_init" })));
+    // Flux temps reel : chaque etape Operator (operator_step) = une carte live.
+    offs.push(ws.on("operator_step", (m) => renderStep(asRecord(m).etape)));
+    offs.push(ws.on("operator_activity", (m) => {
+      renderStep(asRecord(m).evenement);
+      ws.send({ type: "dash_operator_init" });
+    }));
     // Approbation poussee en direct (ex: brouillon cree par le tri mail de fond).
     offs.push(ws.on("operator_pending", (m) => renderPending(asArray(asRecord(m).pending))));
     offs.push(ws.on("dash_operator_devis_pdf", (m) => showPdf(asString(asRecord(m).pdf_b64))));

@@ -15,7 +15,7 @@ import json
 from typing import Any
 
 _PRIORITES = ("haute", "normale", "basse")
-_CLASSIF_DEFAUT = {"categorie": "Autre", "priorite": "normale", "besoin_reponse": False}
+_CLASSIF_DEFAUT = {"categorie": "Autre", "priorite": "normale", "besoin_reponse": False, "raison": ""}
 
 
 # ============================================================
@@ -27,9 +27,11 @@ def classif_email(expediteur: str, sujet: str, extrait: str) -> str:
     return (
         "Tu es un assistant qui trie des emails. Classe l'email suivant et reponds "
         "UNIQUEMENT par un objet JSON (aucun texte autour) avec exactement ces cles :\n"
-        '{"categorie": "...", "priorite": "haute|normale|basse", "besoin_reponse": true|false}\n'
+        '{"categorie": "...", "priorite": "haute|normale|basse", "besoin_reponse": true|false, "raison": "..."}\n'
         "categorie parmi : Facture, Client, Newsletter, Spam, Personnel, Administratif, Autre.\n"
-        "besoin_reponse = true si l'email attend une reponse de ma part.\n\n"
+        "besoin_reponse = true si l'email attend une reponse de ma part.\n"
+        "raison = une phrase COURTE expliquant POURQUOI cette categorie (ex: "
+        "'expediteur EDF + mot facture dans le sujet').\n\n"
         f"Expediteur : {expediteur}\n"
         f"Sujet : {sujet}\n"
         f"Extrait : {extrait}\n"
@@ -76,7 +78,8 @@ def parser_classif(texte_llm: str) -> dict:
     if prio not in _PRIORITES:
         prio = "normale"
     besoin = bool(obj.get("besoin_reponse"))
-    return {"categorie": cat, "priorite": prio, "besoin_reponse": besoin}
+    raison = str(obj.get("raison") or "").strip()
+    return {"categorie": cat, "priorite": prio, "besoin_reponse": besoin, "raison": raison}
 
 
 # ============================================================
