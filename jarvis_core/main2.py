@@ -227,8 +227,9 @@ LON_PAR_DEFAUT   = 2.7708
 
 # Geolocalisation auto (OPT-IN, "si on l'autorise") : quand JARVIS_GEOLOC=1, la
 # meteo sans ville explicite utilise la position reelle (detectee par IP via
-# ip-api.com, gratuit, sans cle) au lieu de la ville par defaut codee en dur.
-# Desactive par defaut -> aucun appel reseau de localisation, comportement inchange.
+# ipwho.is en HTTPS, gratuit, sans cle) au lieu de la ville par defaut codee en
+# dur. Desactive par defaut -> aucun appel reseau de localisation, comportement
+# inchange.
 GEOLOC_AUTO = os.getenv("JARVIS_GEOLOC", "0").strip().lower() in ("1", "true", "oui", "on", "auto")
 _GEOLOC_CACHE = None  # tuple (lat, lon, ville) memorise apres la 1ere detection reussie
 
@@ -1815,15 +1816,26 @@ def _localisation_auto():
     if _GEOLOC_CACHE is not None:
         return _GEOLOC_CACHE
     try:
-        r = requests.get(
-            "http://ip-api.com/json/",
-            params={"fields": "status,city,lat,lon"},
-            timeout=5,
-        )
+        # HTTPS uniquement (pas de cleartext / MITM passif). ipwho.is = gratuit,
+        # sans cle. On VALIDE le type + la plage des coordonnees avant usage :
+        # la reponse vient du reseau (non fiable), une valeur falsifiee/aberrante
+        # ne doit pas alimenter la requete meteo.
+        r = requests.get("https://ipwho.is/", timeout=5)
         d = r.json()
-        if d.get("status") == "success" and d.get("lat") is not None:
-            _GEOLOC_CACHE = (d["lat"], d["lon"], d.get("city") or VILLE_PAR_DEFAUT)
-            print(f"[GEOLOC] Position detectee (IP) : {_GEOLOC_CACHE[2]}")
+        lat, lon = d.get("latitude"), d.get("longitude")
+        if (
+            d.get("success")
+            and isinstance(lat, (int, float)) and not isinstance(lat, bool)
+            and isinstance(lon, (int, float)) and not isinstance(lon, bool)
+            and -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0
+        ):
+            ville = (d.get("city") or VILLE_PAR_DEFAUT)
+            if isinstance(ville, str):
+                ville = ville.strip()[:60] or VILLE_PAR_DEFAUT
+            else:
+                ville = VILLE_PAR_DEFAUT
+            _GEOLOC_CACHE = (float(lat), float(lon), ville)
+            print(f"[GEOLOC] Position detectee (IP, HTTPS) : {_GEOLOC_CACHE[2]}")
             return _GEOLOC_CACHE
     except Exception as e:
         print(f"[GEOLOC] Detection impossible : {e}")
