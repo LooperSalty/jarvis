@@ -35,6 +35,35 @@ import time
 import webbrowser
 from pathlib import Path
 
+# --- Robustesse stdout/stderr en .exe windowed (PyInstaller) -----------------
+# En mode frozen SANS console (double-clic), sys.stdout/stderr sont None ou un
+# puits sans .fileno(). Des libs tirees par faster-whisper (tqdm, onnxruntime,
+# av...) appellent .write()/.fileno()/.isatty() des l'import et FONT CRASHER le
+# process avant meme l'icone tray. On garantit ici des flux ecrivables, rediriges
+# vers un fichier log a cote de l'exe (utile aussi pour diagnostiquer un crash).
+if getattr(sys, "frozen", False):
+    def _flux_inutilisable(flux) -> bool:
+        if flux is None:
+            return True
+        try:
+            flux.write("")
+            flux.flush()
+            flux.fileno()  # tqdm/onnxruntime l'appellent -> doit exister
+            return False
+        except Exception:
+            return True
+
+    if _flux_inutilisable(sys.stdout) or _flux_inutilisable(sys.stderr):
+        try:
+            _log_path = Path(sys.executable).parent / "jarvis.log"
+            _log_flux = open(_log_path, "a", encoding="utf-8", buffering=1)
+            sys.stdout = _log_flux
+            sys.stderr = _log_flux
+        except Exception:
+            # Dernier repli : jamais de crash a cause des flux.
+            import io
+            sys.stdout = sys.stderr = io.StringIO()
+
 from PyQt5.QtCore import Qt, QUrl, pyqtSignal, QObject, QTimer, QPointF, QRect
 from PyQt5.QtGui import QColor, QIcon, QPixmap, QPainter, QImage, QRegion
 from PyQt5.QtWebEngineWidgets import QWebEngineView

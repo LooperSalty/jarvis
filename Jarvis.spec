@@ -163,6 +163,30 @@ a = Analysis(
     noarchive=False,
 )
 
+# --- FIX crash ctranslate2/faster-whisper : runtime C++ MSVCP140 -------------
+# PyQt5 (QtWebEngine) embarque une VIEILLE MSVCP140.dll (14.26, 2020) et l'ajoute
+# au PATH des DLL au demarrage. Quand ctranslate2.dll se charge ensuite (1ere
+# transcription whisper), il herite de cette vieille version -> fonction absente
+# -> access violation (0xc0000005 dans MSVCP140.dll) -> l'exe MEURT sans
+# traceback. On force TOUTES les copies de MSVCP140.dll (et du runtime VC) a la
+# version SYSTEME (recente, retrocompatible) pour satisfaire PyQt5 ET ctranslate2.
+import os as _os_msvc
+_sys32 = _os_msvc.path.join(_os_msvc.environ.get('WINDIR', r'C:\Windows'), 'System32')
+_runtime_vc = {'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'concrt140.dll'}
+_bin_patched, _forces = [], 0
+for _entry in a.binaries:
+    _dest, _src = _entry[0], _entry[1]
+    if _os_msvc.path.basename(_dest).lower() in _runtime_vc:
+        _sys_dll = _os_msvc.path.join(_sys32, _os_msvc.path.basename(_dest))
+        if _os_msvc.path.exists(_sys_dll):
+            _bin_patched.append((_dest, _sys_dll) + tuple(_entry[2:]))
+            _forces += 1
+            continue
+    _bin_patched.append(_entry)
+a.binaries = _bin_patched
+print(f"[Jarvis.spec] MSVCP140/VC runtime force a la version systeme ({_forces} copie(s)) "
+      "-> fix crash ctranslate2/whisper")
+
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 # Build ONEDIR (et non onefile) : en onefile, le bootloader decompresse tout le
