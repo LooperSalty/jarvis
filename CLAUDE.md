@@ -189,6 +189,26 @@ Détection locale par mots-clés AVANT tout appel IA — économise des appels G
 - **`browser.py`** : pilote un Chromium via Playwright (`playwright install chromium` requis une fois). Singleton lazy-init avec profil persistant (`%TEMP%/jarvis_browser_profile`) pour rester loggé entre sessions. Commandes : `va sur youtube`/`ouvre amazon` (navigation, dictionnaire `_SITES` de 25 sites courants), `cherche X sur google/youtube/amazon` (search engines), `lis-moi la page` (extract `<main>`/`<article>`/body, tronqué à 1500 chars), `clique sur [texte]` (`get_by_text`), `tape [texte] dans [champ]` (`get_by_label`/`get_by_placeholder`), `screenshot`, `ferme le navigateur`. Async natif comme meross. Branché APRÈS meross mais AVANT pc_actions.
 - **`openclaw.py`** : pont vers un agent [OpenClaw](https://docs.openclaw.ai) local (gateway `http://127.0.0.1:18789`). Deux tokens DISTINCTS : `OPENCLAW_TOKEN` (= `gateway.auth.token`, pour `demande à openclaw X` → POST `/v1/chat/completions` synchrone, `model="openclaw"`, `user="conv:jarvis"` = session stable côté OpenClaw) et `OPENCLAW_HOOKS_TOKEN` (= `hooks.token`, pour `envoie à openclaw X` → POST `/hooks/agent` fire-and-forget avec `deliver=true`, et `préviens openclaw que X` → POST `/hooks/wake`). `statut openclaw` → GET `/health` (sans auth). Côté OpenClaw, l'endpoint OpenAI doit être activé (`gateway.http.endpoints.chatCompletions.enabled=true`) et les hooks aussi (`hooks.enabled=true`). Async natif, branché APRÈS spotify, AVANT les skills. Aussi exposé comme tool Gemini `ask_openclaw` (déclaré dans `jarvis_actions/agent.py`).
 
+### Sous-système Operator (IA opérateur)
+
+Package `jarvis_actions/operator/` (sous-package, imports relatifs internes comme `pc_control/`) : un assistant opérationnel branché aux **3 surfaces** (voix via `async_executer`, agent Gemini via `tools()`/`dispatch()`, dashboard via `dash_operator_*`) + un **planificateur de fond** (tri mail). Façade `operator/__init__.py` : `init(ctx)` (injecte getters Google, `demander_ia`/`demander_json`, `parler`, `broadcast_ws`, `show_content`, `user_name`), `async_executer`, `_router` (PUR, testé), `demarrer_planificateur`.
+
+Modules (cœur logique PUR et testé ; effets Google/LLM/PDF isolés) :
+- **`config.py`** : `jarvis_operator.json` (gitignoré, modèle `examples/jarvis_operator_example.json`) — société (pour devis), TVA, compteur de devis, règles de tri, niveau d'autonomie email, intervalle. Validé liste blanche, écriture atomique (pattern `jarvis_ui_config.py`).
+- **`report.py`** : journal d'activité persisté + `resume_textuel()` (« voici ce que j'ai fait ») + broadcast `operator_activity`.
+- **`approvals.py`** : file d'approbation persistée (`send_devis`/`send_email_reply`) + `confirmer/rejeter` + broadcast `operator_pending`. **Aucun email/devis n'est envoyé sans « oui » explicite.**
+- **`gmail_ops.py`** : classification (LLM→JSON), décision de tri (règles), étiquetage/archivage, brouillons, envoi avec PJ.
+- **`calendar_ops.py`** : parse RDV (NL→payload), `construire_event`, `creneaux_libres`, CRUD événements.
+- **`meeting.py`** : transcription fichier (faster-whisper, optionnel) + résumé LLM + **mode live** (thread micro sans wake-word, broadcast `operator_transcript`).
+- **`devis.py` / `devis_pdf.py`** : modèle polyvalent (prestation/matériau/produit), `calculer_totaux` multi-TVA (PUR), `from_transcript`, rendu **PDF** (fpdf2 optionnel, dégrade en l'absence de la dép).
+- **`research.py`** : recherche internet (SerpAPI + repli) + synthèse LLM.
+
+Commandes vocales : « trie mes mails » (tri + rapport), « prends rdv … », « écoute la réunion » / « arrête d'écouter », « fais un devis » (depuis la réunion ou la dictée → PDF → « oui » → envoi Gmail), « fais une recherche sur … ». Le bloc `operator.async_executer` est branché dans `traiter_reponse_ia` **après `browser`** (regexes étroites) ; les « oui/non » ne sont captés que si une approbation est en attente. Outils Gemini : `operator_triage_mail`/`operator_creer_rdv`/`operator_recherche`/`operator_faire_devis` (injectés via `extra_tools`, routés dans `_agent_dispatch`).
+
+**Onglet dashboard « Operator »** (`frontend/src/dashboard/sections_operator.ts`, onglet principal entre Chat et Cowork) : À valider (approbations Valider/Rejeter), Réunion (start/stop + transcript live + import audio), Recherche, Réglages Operator (société/autonomie/TVA/numérotation), Activité. Handlers `dash_operator_*` dans `jarvis_dashboard_api.py`.
+
+**Pièges Operator** : scope Gmail élevé à `gmail.modify` (étiquetage/archivage) → **re-consentement OAuth** au prochain run (token.pickle régénéré). Données runtime gitignorées : `jarvis_operator.json`, `jarvis_operator_report.json`, `jarvis_operator_approvals.json`. Dép optionnelle `fpdf2` (devis PDF) ajoutée à `requirements-windows.txt`. Le mode réunion live partage le micro avec la boucle vocale — usage explicite, transcript stocké localement, jamais auto-envoyé.
+
 ### Frontend (`frontend/src/`)
 
 - **`main.ts`** : connexion WebSocket avec auto-reconnect, dispatcher vers l'orbe selon les messages. Écoute le bouton mute (envoie `stop_audio`) et le bouton vision (`injectVisionButton`).

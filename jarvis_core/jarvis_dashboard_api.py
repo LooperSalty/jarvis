@@ -91,6 +91,20 @@ except Exception as e:
     print(f"[DASHBOARD] Module triggers indisponible : {e}")
 
 try:
+    from jarvis_actions import operator as operator_mod
+    from jarvis_actions.operator import (
+        report as op_report,
+        approvals as op_approvals,
+        config as op_config,
+    )
+except Exception as e:
+    operator_mod = None
+    op_report = None
+    op_approvals = None
+    op_config = None
+    print(f"[DASHBOARD] Module operator indisponible : {e}")
+
+try:
     import jarvis_secrets
 except Exception as e:
     jarvis_secrets = None
@@ -1963,6 +1977,116 @@ async def _h_skills_sh_add(data: dict) -> dict:
 
 
 # ==========================================
+# OPERATOR (tri mail, RDV, reunion, devis, recherche)
+# ==========================================
+async def _h_operator_init(data: dict) -> dict:
+    """Etat initial de l'onglet Operator : file d'approbation + activite recente."""
+    if op_approvals is None or op_report is None:
+        return {"action": "dash_operator_state", "pending": [], "activity": [],
+                "error": "Module operator indisponible"}
+    try:
+        return {"action": "dash_operator_state",
+                "pending": op_approvals.lister_public(),
+                "activity": op_report.derniers(50)}
+    except Exception as e:
+        return {"action": "dash_operator_state", "pending": [], "activity": [], "error": str(e)}
+
+
+async def _h_operator_confirm(data: dict) -> dict:
+    """Valide une action en attente (devis/email) -> execution via la facade operator."""
+    if operator_mod is None or op_approvals is None:
+        return {"action": "dash_operator_pending", "pending": [], "ok": False,
+                "message": "Module operator indisponible"}
+    aid = str(data.get("id", "") or "")
+    try:
+        msg, ok = await operator_mod.confirmer_depuis_dashboard(aid)
+    except Exception as e:
+        msg, ok = f"Erreur : {e}", False
+    return {"action": "dash_operator_pending", "pending": op_approvals.lister_public(),
+            "ok": bool(ok), "message": msg}
+
+
+async def _h_operator_reject(data: dict) -> dict:
+    """Rejette une action en attente."""
+    if op_approvals is None:
+        return {"action": "dash_operator_pending", "pending": [], "ok": False}
+    aid = str(data.get("id", "") or "")
+    ok = op_approvals.rejeter(aid)
+    return {"action": "dash_operator_pending", "pending": op_approvals.lister_public(), "ok": bool(ok)}
+
+
+async def _h_operator_settings_get(data: dict) -> dict:
+    """Reglages Operator (societe, TVA, compteur devis, regles, autonomie). Sans secret."""
+    if op_config is None:
+        return {"action": "dash_operator_settings", "config": {}, "error": "indisponible"}
+    return {"action": "dash_operator_settings", "config": op_config.charger()}
+
+
+async def _h_operator_settings_set(data: dict) -> dict:
+    """Enregistre des reglages Operator (fusion partielle validee)."""
+    if op_config is None:
+        return {"action": "dash_operator_settings", "config": {}, "ok": False}
+    config = await _en_executor(lambda: op_config.sauvegarder(data.get("updates")))
+    return {"action": "dash_operator_settings", "config": config, "ok": True}
+
+
+async def _h_operator_meeting(data: dict) -> dict:
+    """Controle de la session reunion : start / stop / import / state."""
+    if operator_mod is None:
+        return {"action": "dash_operator_meeting", "ok": False, "message": "indisponible"}
+    op = str(data.get("op", "state") or "state")
+    if op == "start":
+        res = await operator_mod.dashboard_meeting_start()
+    elif op == "stop":
+        res = await operator_mod.dashboard_meeting_stop()
+    elif op == "import":
+        res = await operator_mod.dashboard_meeting_import(str(data.get("path", "") or ""))
+    else:
+        res = operator_mod.meeting_etat()
+    res = dict(res)
+    res["action"] = "dash_operator_meeting"
+    return res
+
+
+async def _h_operator_research(data: dict) -> dict:
+    """Recherche internet depuis le dashboard -> synthese + sources."""
+    if operator_mod is None:
+        return {"action": "dash_operator_research", "resume": "", "sources": []}
+    res = await operator_mod.dashboard_research(str(data.get("query", "") or ""))
+    return {"action": "dash_operator_research", "resume": res.get("resume", ""),
+            "sources": res.get("sources", [])}
+
+
+async def _h_operator_devis(data: dict) -> dict:
+    """Prepare un devis (depuis la reunion courante ou une description) -> approbation."""
+    if operator_mod is None:
+        return {"action": "dash_operator_pending", "pending": [], "ok": False, "message": "indisponible"}
+    res = await operator_mod.dashboard_creer_devis(str(data.get("description", "") or ""))
+    return {"action": "dash_operator_pending", "pending": res.get("pending", []),
+            "ok": res.get("ok", False), "message": res.get("message", "")}
+
+
+async def _h_operator_agenda(data: dict) -> dict:
+    """Prochains evenements (lecture seule) pour le panneau Agenda."""
+    if operator_mod is None:
+        return {"action": "dash_operator_agenda", "events": []}
+    events = await operator_mod.dashboard_agenda()
+    return {"action": "dash_operator_agenda", "events": events}
+
+
+async def _h_operator_devis_pdf(data: dict) -> dict:
+    """Renvoie le PDF d'un devis en attente (base64) pour previsualisation in-app.
+
+    Le client ne fournit QUE l'id de l'approbation ; le chemin est resolu cote
+    serveur (pas de lecture de fichier arbitraire)."""
+    if operator_mod is None:
+        return {"action": "dash_operator_devis_pdf", "id": "", "pdf_b64": ""}
+    aid = str(data.get("id", "") or "")
+    b64 = await _en_executor(lambda: operator_mod.pdf_base64_pour(aid))
+    return {"action": "dash_operator_devis_pdf", "id": aid, "pdf_b64": b64 or ""}
+
+
+# ==========================================
 # DISPATCH
 # ==========================================
 _HANDLERS = {
@@ -2013,6 +2137,16 @@ _HANDLERS = {
     "dash_cowork_delegate": _h_cowork_delegate,
     "dash_cowork_session": _h_cowork_session,
     "dash_cowork_chat": _h_cowork_chat,
+    "dash_operator_init": _h_operator_init,
+    "dash_operator_confirm": _h_operator_confirm,
+    "dash_operator_reject": _h_operator_reject,
+    "dash_operator_settings_get": _h_operator_settings_get,
+    "dash_operator_settings_set": _h_operator_settings_set,
+    "dash_operator_meeting": _h_operator_meeting,
+    "dash_operator_research": _h_operator_research,
+    "dash_operator_devis": _h_operator_devis,
+    "dash_operator_agenda": _h_operator_agenda,
+    "dash_operator_devis_pdf": _h_operator_devis_pdf,
 }
 
 

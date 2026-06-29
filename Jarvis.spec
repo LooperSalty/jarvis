@@ -117,6 +117,15 @@ for _pkg_voix in ('faster_whisper', 'openwakeword'):
         print(f"[Jarvis.spec] ATTENTION : {_pkg_voix} non installe — voix locale "
               "(JARVIS_STT_LOCAL/JARVIS_WAKE_LOCAL) NON embarquee dans le .exe")
 
+# Operator : fpdf2 (genere les devis PDF) est en import lazy dans devis_pdf.py.
+# Sans hiddenimport, PyInstaller peut le rater -> les devis sortent sans PDF
+# (degradation propre, mais l'utilisateur perd la fonctionnalite dans le .exe).
+try:
+    hiddenimports += collect_submodules('fpdf')
+except Exception:
+    print("[Jarvis.spec] ATTENTION : fpdf2 non installe — devis PDF (Operator) "
+          "NON embarques dans le .exe")
+
 # Modules lourds qui ne servent pas a la version desktop — on les exclut pour reduire la taille
 # NB : pas d'exclusion de 'unittest' (pyparsing/httplib2 en dependent transitivement)
 # NB : on a vire pywebview et pystray, remplaces par PyQt5

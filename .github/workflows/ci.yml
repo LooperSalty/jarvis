@@ -82,7 +82,10 @@ jobs:
           PY
 
       - name: Installer pytest + deps de test
-        run: pip install pytest numpy psutil
+        # pytest-asyncio : requis par les tests async du sous-systeme Operator
+        # (approvals/research/meeting/devis.from_transcript/dashboard) et lu via
+        # asyncio_default_fixture_loop_scope dans pytest.ini.
+        run: pip install pytest pytest-asyncio numpy psutil
 
       - name: Tests unitaires (pytest)
         shell: bash
