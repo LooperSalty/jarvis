@@ -495,6 +495,11 @@ class WindowController(QObject):
 
     def _show_orb(self, state: str = "thinking"):
         self._hide_timer.stop()
+        # GARDE anti-clignotement : ne re-affiche QUE si on n'est pas deja en
+        # mode orbe. Sinon chaque "thinking/speaking" rappelait show_floating()
+        # -> redraws Qt en rafale = scintillement.
+        if self._mode == "orb":
+            return
         # L'etat est applique automatiquement par la page Three.js elle-meme
         # via sa connexion WS au backend (pas besoin de le pousser via Qt).
         self.orb_window.show_floating()
@@ -521,9 +526,17 @@ class WindowController(QObject):
         _log("show_dashboard (fenetre native)")
 
     def _schedule_hide(self):
-        if self._mode == "full":
+        # Deja cache ou en mode fenetre pleine : rien a programmer.
+        if self._mode in ("full", "hidden"):
             return
-        self._hide_timer.start(HIDE_DELAY_MS)
+        # DEBOUNCE : on ne REDEMARRE PAS le timer s'il court deja. La boucle
+        # vocale emet "listening"/"idle" toutes les ~2 s (< 3 s) ; sans cette
+        # garde, chaque emission relancait le timer de 3 s qui ne se declenchait
+        # donc JAMAIS -> apres que Jarvis a parle, la fenetre ne se recachait
+        # plus ("l'option cacher ne marche pas"). Ici le 1er idle programme le
+        # masquage, et il ABOUTIT 3 s plus tard quels que soient les idle suivants.
+        if not self._hide_timer.isActive():
+            self._hide_timer.start(HIDE_DELAY_MS)
 
     def _do_hide(self):
         self.orb_window.hide()

@@ -5,7 +5,10 @@
 credentials.json
 token.json
 token.bin
+token.pickle
 *.token
+*.pickle
+client_secret_*.json
 
 # Config Home Assistant perso (entites reelles). Modele : jarvis_home_config_example.py
 jarvis_home_config.py

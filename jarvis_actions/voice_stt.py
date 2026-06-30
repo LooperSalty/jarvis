@@ -152,14 +152,35 @@ def _transcrire_whisper(audio: Any, language: str) -> Optional[str]:
             f.write(wav_bytes)
             chemin_tmp = f.name
 
+        # Parametres ANTI-HALLUCINATION : whisper "base" INVENTE du texte
+        # plausible a partir du silence/bruit (charabia type "david c'est
+        # carrement cet eleon...") -> le wake word "jarvis" se noie dedans et
+        # Jarvis ne repond jamais. On durcit donc le VAD et le decodage :
+        #  - vad_filter + vad_parameters : coupe agressivement les non-paroles ;
+        #  - no_speech_threshold : marque comme silence les segments douteux ;
+        #  - condition_on_previous_text=False : pas de "devinette" par contexte
+        #    (cause #1 des hallucinations en boucle) ;
+        #  - temperature=0 : decodage deterministe, sans fallback "creatif".
         segments, _info = modele.transcribe(
             chemin_tmp,
             language=lang_court,
             beam_size=1,
             vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=500),
+            no_speech_threshold=0.6,
+            log_prob_threshold=-1.0,
+            condition_on_previous_text=False,
+            temperature=0,
         )
-        # `segments` est un generateur : on concatene les morceaux de texte.
-        texte = "".join(seg.text for seg in segments)
+        # `segments` est un generateur. On REJETTE les segments que whisper
+        # estime etre du silence (no_speech_prob eleve) : c'est la source
+        # directe du charabia hallucine. getattr -> robuste si l'attribut
+        # disparait selon la version de faster-whisper.
+        texte = "".join(
+            seg.text
+            for seg in segments
+            if getattr(seg, "no_speech_prob", 0.0) < 0.6
+        )
         return texte.strip()
     except Exception as e:  # noqa: BLE001 — repli Google a la moindre erreur
         print(f"[STT] Erreur transcription whisper ({e}). Repli sur Google.")
