@@ -2376,10 +2376,15 @@ async def demander_ia(texte):
                             config=types.GenerateContentConfig(
                                 system_instruction=prompt_actuel,
                                 temperature=0.7,
+                                # Grounding Google Search : donne a Jarvis l'acces
+                                # web en temps reel (meteo non detectee, actualites,
+                                # recherches). Sans ca, Gemini repond avec ses
+                                # connaissances figees -> "je n'ai pas acces a internet".
+                                tools=[types.Tool(google_search=types.GoogleSearch())],
                             ),
                             contents=temp_hist
                         ),
-                        timeout=12.0
+                        timeout=20.0
                     )
                     rep = response.text
                     # Succès : mise à jour de l'historique officiel
